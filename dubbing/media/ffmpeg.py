@@ -54,6 +54,43 @@ def find_ffmpeg(configured_path: str | None = None) -> FFmpegTools:
     return FFmpegTools(ffmpeg, ffprobe)
 
 
+def find_ffmpeg_dll_dir(configured_dir: str | None = None) -> Path:
+    """Folder holding FFmpeg's DLLs (avcodec-*.dll). torchaudio/torchcodec need these on
+    Windows to read audio; the regular single-file FFmpeg build does not include them."""
+    candidates: list[Path] = []
+    if configured_dir:
+        candidates.append(Path(configured_dir))
+    for exe in (shutil.which("ffmpeg"),):
+        if exe:
+            candidates.append(Path(exe).parent)
+    winget = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
+    if winget.is_dir():
+        candidates.extend(p.parent for p in winget.glob("Gyan.FFmpeg.Shared*/*/bin/avcodec-*.dll"))
+    for folder in candidates:
+        if any(folder.glob("avcodec-*.dll")):
+            return folder
+    raise MediaError(
+        "FFmpeg's shared libraries (DLLs) were not found; speech generation needs them on Windows.\n"
+        "Install them with:  winget install --id Gyan.FFmpeg.Shared --exact\n"
+        "or set paths.ffmpeg_dll_dir in config.yaml to the folder containing avcodec-*.dll."
+    )
+
+
+_dll_dirs_added: set[str] = set()
+
+
+def enable_ffmpeg_dlls(configured_dir: str | None = None) -> Path:
+    """Let Python load FFmpeg's DLLs. Call before importing TTS/torchaudio audio code."""
+    import os
+
+    folder = find_ffmpeg_dll_dir(configured_dir)
+    if str(folder) not in _dll_dirs_added and hasattr(os, "add_dll_directory"):
+        os.add_dll_directory(str(folder))
+        _dll_dirs_added.add(str(folder))
+        log.debug("Using FFmpeg DLLs from %s", folder)
+    return folder
+
+
 def _run(cmd: list[str], what: str) -> subprocess.CompletedProcess:
     log.debug("Running: %s", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")

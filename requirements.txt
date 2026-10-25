@@ -12,3 +12,9 @@ pytest==9.1.1
 torch==2.14.1
 transformers==5.20.2
 sentencepiece==0.2.2
+
+# Phase 4 (speech). Also needs FFmpeg's DLLs on Windows:
+#   winget install --id Gyan.FFmpeg.Shared --exact
+coqui-tts==0.28.0
+torchaudio==2.11.0
+torchcodec==0.17.0

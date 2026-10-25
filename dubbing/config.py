@@ -32,6 +32,24 @@ class TranslationSettings:
     max_new_tokens: int
 
 
+VOICE_MODES = {"clone", "standard"}
+
+
+@dataclass(frozen=True)
+class TtsSettings:
+    accept_coqui_license: bool
+    model: str
+    voice_mode: str
+    standard_speaker: str
+    min_reference_s: float
+    max_borrow_distance_s: float
+    max_speed: float
+    temperature: float
+    seed: int
+    verify_with_asr: bool
+    clarity_fallback: bool
+
+
 @dataclass(frozen=True)
 class Settings:
     preset: str
@@ -40,8 +58,10 @@ class Settings:
     device: str
     data_dir: Path
     ffmpeg_path: str | None
+    ffmpeg_dll_dir: str | None
     asr: AsrSettings
     translation: TranslationSettings
+    tts: TtsSettings
 
 
 def load_settings(config_path: Path | None = None, preset: str | None = None) -> Settings:
@@ -86,6 +106,25 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
     if translation.batch_size < 1 or translation.num_beams < 1:
         raise ConfigError("translation.batch_size and translation.num_beams must be 1 or more")
 
+    t = raw.get("tts") or {}
+    tts = TtsSettings(
+        accept_coqui_license=bool(t.get("accept_coqui_license", False)),
+        model=t.get("model", "tts_models/multilingual/multi-dataset/xtts_v2"),
+        voice_mode=t.get("voice_mode", "clone"),
+        standard_speaker=t.get("standard_speaker", "Damien Black"),
+        min_reference_s=float(t.get("min_reference_s", 3.0)),
+        max_borrow_distance_s=float(t.get("max_borrow_distance_s", 10.0)),
+        max_speed=float(t.get("max_speed", 1.3)),
+        temperature=float(t.get("temperature", 0.7)),
+        seed=int(t.get("seed", 1234)),
+        verify_with_asr=bool(t.get("verify_with_asr", True)),
+        clarity_fallback=bool(t.get("clarity_fallback", True)),
+    )
+    if tts.voice_mode not in VOICE_MODES:
+        raise ConfigError(f"tts.voice_mode must be one of {sorted(VOICE_MODES)}, got '{tts.voice_mode}'")
+    if not 1.0 <= tts.max_speed <= 2.0:
+        raise ConfigError("tts.max_speed must be between 1.0 and 2.0")
+
     return Settings(
         preset=preset,
         source_language=raw.get("source_language"),
@@ -93,6 +132,7 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
         device=device,
         data_dir=data_dir,
         ffmpeg_path=paths.get("ffmpeg"),
+        ffmpeg_dll_dir=paths.get("ffmpeg_dll_dir"),
         asr=AsrSettings(
             model=model,
             beam_size=int(asr_raw.get("beam_size", 5)),
@@ -100,4 +140,5 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
             word_timestamps=bool(asr_raw.get("word_timestamps", True)),
         ),
         translation=translation,
+        tts=tts,
     )

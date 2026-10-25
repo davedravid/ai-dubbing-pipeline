@@ -50,6 +50,40 @@ class JobPaths:
         return self.temp_dir / f"{self.job_id}_asr16k.wav"
 
     @property
+    def source_audio(self) -> Path:
+        """24 kHz mono WAV: better quality than the ASR copy; used for analysis and voice references."""
+        return self.temp_dir / f"{self.job_id}_source24k.wav"
+
+    @property
+    def features_dir(self) -> Path:
+        return self.data_dir / "features"
+
+    def features(self, lang: str) -> Path:
+        return self.features_dir / f"{self.job_id}_{lang}.json"
+
+    @property
+    def references_dir(self) -> Path:
+        return self.data_dir / "references" / self.job_id
+
+    @property
+    def tts_root(self) -> Path:
+        return self.data_dir / "tts"
+
+    def tts_dir(self, lang: str) -> Path:
+        return self.tts_root / f"{self.job_id}_{lang}"
+
+    def tts_manifest(self, lang: str) -> Path:
+        return self.tts_root / f"{self.job_id}_{lang}.json"
+
+    @property
+    def outputs_dir(self) -> Path:
+        return self.data_dir / "outputs"
+
+    def speech_preview(self, lang: str) -> Path:
+        """Dubbed speech only, placed on the video's timeline (no music/effects yet)."""
+        return self.outputs_dir / f"{self.job_id}_{lang}_speech_preview.wav"
+
+    @property
     def log_file(self) -> Path:
         return self.logs_dir / f"{self.job_id}.log"
 

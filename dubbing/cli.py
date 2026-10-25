@@ -43,6 +43,23 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--overwrite", action="store_true", help="Replace an existing translation")
     tr.add_argument("--verbose", action="store_true", help="Show detailed log messages")
 
+    a = sub.add_parser("analyze", help="Measure pitch, loudness and pace of each original line")
+    a.add_argument("--job-id", required=True)
+    a.add_argument("--config", type=Path, help="Use a different config file")
+    a.add_argument("--overwrite", action="store_true", help="Replace existing measurements")
+    a.add_argument("--verbose", action="store_true", help="Show detailed log messages")
+
+    sp = sub.add_parser("speak", help="Generate dubbed speech for a job's translation (XTTS v2)")
+    sp.add_argument("--job-id", required=True)
+    sp.add_argument("--lang", default="hi", help="Language of the translation to speak (default: hi)")
+    sp.add_argument("--voice", choices=["clone", "standard"], help="Override tts.voice_mode in config.yaml")
+    sp.add_argument("--limit", type=int, help="Only the first N lines (for a quick test)")
+    sp.add_argument("--config", type=Path, help="Use a different config file")
+    sp.add_argument("--overwrite", action="store_true", help="Generate again, replacing earlier speech")
+    sp.add_argument("--redo-flagged", action="store_true",
+                    help="Remake only lines that failed the checks last time; keep the rest")
+    sp.add_argument("--verbose", action="store_true", help="Show detailed log messages")
+
     s = sub.add_parser("subtitles", help="Make a WebVTT (.vtt) subtitle file from a transcript or translation")
     s.add_argument("--job-id", required=True, help="The job to make subtitles for")
     s.add_argument("--lang", help="Language, e.g. 'en' or 'hi' (uses the translation if one exists)")
@@ -77,6 +94,19 @@ def main(argv: list[str] | None = None) -> int:
             targets = [c.strip() for c in args.to.split(",") if c.strip()] if args.to else None
             outs = run_translation(args.job_id, settings, targets, overwrite=args.overwrite)
             print("\nDone. Translations:\n" + "\n".join(f"  {p}" for p in outs))
+        elif args.command == "analyze":
+            from dubbing.pipeline.analyze_job import run_analysis
+
+            setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
+            out = run_analysis(args.job_id, settings, overwrite=args.overwrite)
+            print(f"\nDone. Measurements: {out}")
+        elif args.command == "speak":
+            from dubbing.pipeline.speech_job import run_speech
+
+            setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
+            out = run_speech(args.job_id, settings, lang=args.lang, overwrite=args.overwrite,
+                             limit=args.limit, voice_mode=args.voice, redo_flagged=args.redo_flagged)
+            print(f"\nDone. Speech manifest: {out}")
         elif args.command == "subtitles":
             from dubbing.pipeline.subtitles_job import run_subtitles
 

@@ -17,6 +17,9 @@ paths:
   data_dir: data
   # Full path to ffmpeg.exe, or null to find it on the system PATH.
   ffmpeg: null
+  # Folder with FFmpeg's DLLs (avcodec-*.dll), needed for speech on Windows.
+  # null = find the Gyan.FFmpeg.Shared install automatically.
+  ffmpeg_dll_dir: null
 
 asr:
   beam_size: 5
@@ -32,6 +35,31 @@ translation:
   # How many alternatives the model weighs (higher = slightly better, slower).
   num_beams: 4
   max_new_tokens: 256
+
+tts:
+  # You accepted the Coqui Public Model License (non-commercial use only) on 2026-10-25.
+  # Set to false to stop the pipeline from using XTTS.
+  accept_coqui_license: true
+  model: tts_models/multilingual/multi-dataset/xtts_v2
+  # 'clone' = copy the voice and delivery of each original line.
+  # 'standard' = use one of XTTS's built-in voices for every line.
+  voice_mode: clone
+  standard_speaker: Damien Black
+  # A line shorter than this cannot be cloned from itself; it borrows the
+  # nearest longer line within max_borrow_distance_s (the speaker may differ!).
+  min_reference_s: 3.0
+  max_borrow_distance_s: 10.0
+  # If a line is too long for its slot, it is generated again at most this fast.
+  max_speed: 1.3
+  # Lower = steadier, higher = more varied delivery.
+  temperature: 0.7
+  # Fixed seed so the same input gives the same speech.
+  seed: 1234
+  # Transcribe each dubbed line back with Whisper to check it can be understood.
+  verify_with_asr: true
+  # If a cloned line still cannot be understood after 3 takes, use the (clear)
+  # built-in voice instead and flag it. Understandable beats an exact voice match.
+  clarity_fallback: true
 
 presets:
   fast:
