@@ -10,7 +10,7 @@ Current focus: **English → Hindi**.
 | 2 | Video → audio extraction → timestamped transcript (JSON) | **Verified 2026-10-25**: 16 unit tests + 4 integration tests pass on a 4-min English clip (84 segments, English detected, about 1× real time on CPU) |
 | 3 | English → Hindi translation (NLLB-200 600M) with completeness checks and timing budget | **Verified 2026-10-25**: job_001's 84 segments → 69 sentence units, all translated, 100% Devanagari, 12 flagged for review; 47 unit + 2 model tests pass. Translation *quality* not yet reviewed by a native speaker |
 | 5 (early) | WebVTT subtitles (English and Hindi) | **Verified 2026-10-25**: FFmpeg reads all cues of both files. Embedding into video: not started |
-| 4 | Delivery measurements + Hindi speech with XTTS v2 voice cloning, back-check, retries | **In progress (2026-10-25)**: all 69 job_001 lines generated; 3 still unclear, 2 with invented speech, 12 use the built-in voice for clarity, 44 longer than their slot (Phase 5). 75 fast tests pass; speech model tests not yet run; not yet reviewed by ear |
+| 4 | Delivery measurements + Hindi speech with XTTS v2 voice cloning, back-check, retries | **In progress (2026-10-25)**: all 69 job_001 lines generated; 3 still unclear, 2 with invented speech, 12 use the built-in voice for clarity, 44 longer than their slot (Phase 5). 71 fast tests pass; speech model tests not yet run; not yet reviewed by ear |
 | 5 | Mixing, video output, subtitles | Not started |
 | 6 | Multiple speakers | Not started |
 | 7 | Vocal separation, caching, QA reports | Not started |
