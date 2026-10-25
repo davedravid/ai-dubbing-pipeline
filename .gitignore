@@ -1,0 +1,17 @@
+# Generated outputs: large, re-creatable, and may contain copyrighted dialogue/audio
+data/
+
+# Source videos
+input/
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Half-written files from interrupted runs
+*.tmp
+
+# Virtual environments, in case one is ever created inside the project
+.venv/
+venv/

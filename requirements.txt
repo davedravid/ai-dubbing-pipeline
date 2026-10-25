@@ -1,0 +1,14 @@
+# Packages this project uses directly. Exact versions of everything
+# (including sub-dependencies) that were tested together: requirements-lock.txt
+#
+# Milestone 1 (transcription)
+faster-whisper==1.2.1
+PyYAML==6.0.3
+pytest==9.1.1
+
+# Phase 3 (translation). torch is the CPU build: install with
+#   --extra-index-url https://download.pytorch.org/whl/cpu
+# These versions were checked to also work with coqui-tts 0.28.0 (Phase 4).
+torch==2.14.1
+transformers==5.20.2
+sentencepiece==0.2.2

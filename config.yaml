@@ -1,0 +1,40 @@
+# AI Dubbing Pipeline settings.
+# Edit values here instead of changing code. Lines starting with # are comments.
+
+# 'fast' or 'quality'. Presets (below) decide which models are used.
+preset: fast
+
+# Language of the original speech, e.g. 'en'. Use null to let Whisper detect it.
+source_language: null
+
+# Target language(s) for dubbing (used from Phase 3 onwards).
+target_languages: [hi]
+
+# 'auto' uses an NVIDIA GPU if one is found, otherwise the CPU.
+device: auto
+
+paths:
+  data_dir: data
+  # Full path to ffmpeg.exe, or null to find it on the system PATH.
+  ffmpeg: null
+
+asr:
+  beam_size: 5
+  # Skips long silences/music so Whisper does not invent text there.
+  vad_filter: true
+  # Per-word timings; useful later for subtitles and speaker labels.
+  word_timestamps: true
+
+translation:
+  model: facebook/nllb-200-distilled-600M
+  # Texts translated together; lower it if the computer runs out of memory.
+  batch_size: 8
+  # How many alternatives the model weighs (higher = slightly better, slower).
+  num_beams: 4
+  max_new_tokens: 256
+
+presets:
+  fast:
+    asr_model: medium
+  quality:
+    asr_model: large-v3
