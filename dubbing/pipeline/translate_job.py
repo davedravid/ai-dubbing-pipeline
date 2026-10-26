@@ -57,14 +57,20 @@ def _shorter_alternatives(translator, sources: list[str], candidates: list[list[
     for k, options in scored.items():
         primary, rest = options[0], options[1:]
         floor = max(MIN_MEANING_SCORE, primary["meaning_score"] * KEEP_MEANING_SHARE)
-        good = []
+        good, clean = [], []
         for o in rest:
             flags, _ = check_translation(sources[k], o["text"], source, target, 1.0, 1.0, 14.0)
-            if o["chars"] <= primary["chars"] * MIN_SHORTER and o["meaning_score"] >= floor \
-                    and not set(flags) & BAD_FLAGS:
+            if set(flags) & BAD_FLAGS:
+                continue
+            # Any length, fully in the target script, meaning kept: a replacement for a main
+            # wording that left words in the wrong script.
+            if o["meaning_score"] >= MIN_MEANING_SCORE:
+                clean.append(o)
+            if o["chars"] <= primary["chars"] * MIN_SHORTER and o["meaning_score"] >= floor:
                 good.append(o)
         result[k] = {"primary_meaning": primary["meaning_score"], "primary_back": primary["back_translation"],
-                     "options": sorted(good, key=lambda o: -o["meaning_score"])}
+                     "options": sorted(good, key=lambda o: -o["meaning_score"]),
+                     "best_clean": max(clean, key=lambda o: o["meaning_score"], default=None)}
     return result
 
 
@@ -136,11 +142,22 @@ def run_translation(
         out_units = []
         for i, unit in enumerate(units):
             fact = facts[i]
+            replaced = None
             if i in translated:
                 flags, estimates = check_translation(
                     unit["text"], translated[i], source, target,
                     fact["duration_s"], fact["available_s"], fact["source_chars_per_s"],
                 )
+                # Words left in the wrong script are hard to speak: use a clean alternative if one exists.
+                best_clean = (alternatives.get(i) or {}).get("best_clean")
+                if "wrong_script" in flags and best_clean:
+                    replaced = translated[i]
+                    translated[i] = best_clean["text"]
+                    flags, estimates = check_translation(
+                        unit["text"], translated[i], source, target,
+                        fact["duration_s"], fact["available_s"], fact["source_chars_per_s"],
+                    )
+                    flags.append("replaced_wrong_script")
                 status = "translated"
             else:
                 flags, estimates, status = ["empty_source"], {}, "skipped_empty_source"
@@ -157,6 +174,7 @@ def run_translation(
                 "flags": flags,
                 **fact,
                 **estimates,
+                **({"first_wording": replaced} if replaced else {}),
                 **({"meaning_score": alternatives[i]["primary_meaning"],
                     "back_translation": alternatives[i]["primary_back"],
                     "shorter_alternatives": alternatives[i]["options"]} if i in alternatives else {}),

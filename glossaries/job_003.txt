@@ -1,0 +1,17 @@
+# Names and terms in the Avengers "We're a Time Bomb" clip (job_003).
+# One per line, written exactly as they should appear. Lines starting with # are notes.
+S.H.I.E.L.D.
+Tesseract
+Loki
+Asgard
+Earth
+Agent Romanoff
+Romanoff
+Dr. Banner
+Banner
+Stark
+Captain America
+Thor
+Fury
+Calcutta
+M.O.

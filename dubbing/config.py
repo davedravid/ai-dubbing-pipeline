@@ -27,15 +27,23 @@ class AsrSettings:
     max_segment_s: float
     split_pause_s: float
     fill_gaps: bool
+    glossary: list[str]
 
 
 @dataclass(frozen=True)
 class DiarizationSettings:
     enabled: bool
+    method: str
+    cluster_threshold: float
     model: str
     min_speakers: int | None
     max_speakers: int | None
     min_confidence: float
+
+
+@dataclass(frozen=True)
+class ScriptSettings:
+    detect_overlaps: bool
 
 
 @dataclass(frozen=True)
@@ -93,6 +101,7 @@ class Settings:
     ffmpeg_dll_dir: str | None
     asr: AsrSettings
     diarization: DiarizationSettings
+    script: ScriptSettings
     translation: TranslationSettings
     tts: TtsSettings
     mix: MixSettings
@@ -156,6 +165,8 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
         verify_with_asr=bool(t.get("verify_with_asr", True)),
         clarity_fallback=bool(t.get("clarity_fallback", True)),
     )
+    if d.get("method", "voice_fingerprints") not in ("voice_fingerprints", "pyannote"):
+        raise ConfigError("diarization.method must be 'voice_fingerprints' or 'pyannote'")
     if tts.voice_mode not in VOICE_MODES:
         raise ConfigError(f"tts.voice_mode must be one of {sorted(VOICE_MODES)}, got '{tts.voice_mode}'")
     if not 1.0 <= tts.max_speed <= 2.0:
@@ -198,14 +209,18 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
             max_segment_s=float(asr_raw.get("max_segment_s", 10.0)),
             split_pause_s=float(asr_raw.get("split_pause_s", 0.6)),
             fill_gaps=bool(asr_raw.get("fill_gaps", True)),
+            glossary=[str(t) for t in (asr_raw.get("glossary") or [])],
         ),
         diarization=DiarizationSettings(
             enabled=bool(d.get("enabled", True)),
+            method=d.get("method", "voice_fingerprints"),
+            cluster_threshold=float(d.get("cluster_threshold", 0.7)),
             model=d.get("model", "pyannote/speaker-diarization-3.1"),
             min_speakers=d.get("min_speakers"),
             max_speakers=d.get("max_speakers"),
             min_confidence=float(d.get("min_confidence", 0.7)),
         ),
+        script=ScriptSettings(detect_overlaps=bool((raw.get("script") or {}).get("detect_overlaps", True))),
         translation=translation,
         tts=tts,
         mix=mix,

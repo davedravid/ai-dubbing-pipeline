@@ -70,6 +70,32 @@ class JobPaths:
         return self.temp_dir / f"{self.job_id}_background.wav"
 
     @property
+    def glossary(self) -> Path:
+        """Names and terms for this job, one per line (kept with the project, not in data/)."""
+        return self.data_dir.parent / "glossaries" / f"{self.job_id}.txt"
+
+    @property
+    def scripts_dir(self) -> Path:
+        return self.data_dir / "scripts"
+
+    @property
+    def script(self) -> Path:
+        return self.scripts_dir / f"{self.job_id}_script.json"
+
+    @property
+    def script_review(self) -> Path:
+        return self.scripts_dir / f"{self.job_id}_review.html"
+
+    @property
+    def speaker_overrides(self) -> Path:
+        """Your corrections: speaker names, genders, merges. Kept with the project."""
+        return self.data_dir.parent / "speakers" / f"{self.job_id}.yaml"
+
+    @property
+    def speaker_samples_dir(self) -> Path:
+        return self.scripts_dir / f"{self.job_id}_speakers"
+
+    @property
     def diarization(self) -> Path:
         return self.data_dir / "diarization" / f"{self.job_id}.json"
 

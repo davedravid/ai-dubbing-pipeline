@@ -39,6 +39,7 @@ def transcribe(
     asr: AsrSettings,
     device: str = "auto",
     language: str | None = None,
+    hotwords: str | None = None,
 ) -> TranscriptionResult:
     """Run Whisper on a WAV file. `language=None` means auto-detect."""
     from faster_whisper import WhisperModel
@@ -62,6 +63,7 @@ def transcribe(
         beam_size=asr.beam_size,
         vad_filter=asr.vad_filter,
         word_timestamps=asr.word_timestamps,
+        hotwords=hotwords,  # glossary names/terms to listen for
     )
     log.info("Language: %s (probability %.2f). Audio length %.1fs. Transcribing...",
              info.language, info.language_probability, info.duration)
@@ -103,5 +105,6 @@ def transcribe(
             "vad_filter": asr.vad_filter,
             "word_timestamps": asr.word_timestamps,
             "language_forced": language is not None,
+            "hotwords": hotwords,
         },
     )

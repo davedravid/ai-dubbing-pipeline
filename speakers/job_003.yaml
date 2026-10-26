@@ -1,0 +1,33 @@
+# Your corrections for the detected speakers. Edit and run 'script' again.
+#   name:    who it is (e.g. Banner)
+#   gender:  male / female (overrides the pitch-based guess)
+#   same_as: another label, if two labels are really the same person
+speakers:
+  S1:   # detected: female (176.6 Hz), 14.0 s of speech, 13 lines
+    name: null
+    gender: null
+    same_as: null
+  S2:   # detected: male (118.9 Hz), 46.1 s of speech, 31 lines
+    name: null
+    gender: null
+    same_as: null
+  S3:   # detected: male (121.3 Hz), 34.3 s of speech, 22 lines
+    name: null
+    gender: null
+    same_as: null
+  S4:   # detected: male (106.5 Hz), 25.1 s of speech, 17 lines
+    name: null
+    gender: null
+    same_as: null
+  S5:   # detected: male (100.8 Hz), 30.2 s of speech, 26 lines
+    name: null
+    gender: null
+    same_as: null
+  S6:   # detected: male (93.0 Hz), 15.7 s of speech, 12 lines
+    name: null
+    gender: null
+    same_as: null
+  S7:   # detected: female (281.1 Hz), 1.3 s of speech, 1 lines
+    name: null
+    gender: null
+    same_as: null

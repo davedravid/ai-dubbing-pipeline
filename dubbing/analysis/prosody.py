@@ -32,10 +32,13 @@ def analyze_clip(y: np.ndarray, sr: int, with_pitch: bool = True) -> dict[str, A
 
     y = np.asarray(y, dtype=np.float32)
     duration = len(y) / sr if sr else 0.0
-    if len(y) < FRAME:
+    # The window must hold two periods of the lowest pitch: longer windows for high sample rates.
+    frame = FRAME if sr <= 24000 else 2 * FRAME
+    hop = frame // 4
+    if len(y) < frame:
         return {"duration_s": round(duration, 3), "too_short": True}
 
-    rms = librosa.feature.rms(y=y, frame_length=FRAME, hop_length=HOP)[0]
+    rms = librosa.feature.rms(y=y, frame_length=frame, hop_length=hop)[0]
     rms_db = _db(rms)
     active = rms_db > (rms_db.max() - SILENCE_BELOW_PEAK_DB)
     result: dict[str, Any] = {
@@ -47,7 +50,7 @@ def analyze_clip(y: np.ndarray, sr: int, with_pitch: bool = True) -> dict[str, A
 
     if with_pitch:
         f0, voiced, _ = librosa.pyin(y, fmin=PITCH_MIN_HZ, fmax=PITCH_MAX_HZ, sr=sr,
-                                     frame_length=FRAME, hop_length=HOP)
+                                     frame_length=frame, hop_length=hop)
         f0 = f0[voiced & ~np.isnan(f0)]
         result["voiced_ratio"] = round(float(voiced.mean()), 3)
         if len(f0) >= 5:

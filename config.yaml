@@ -38,17 +38,30 @@ asr:
   # Listen again to stretches where a voice is audible but nothing was transcribed
   # (Whisper skipped the opening greetings once). Recovered lines are marked "recovered".
   fill_gaps: true
+  # Names/terms for every job. Per-video terms go in glossaries/<job_id>.txt (one per line).
+  glossary: []
 
 diarization:
   # Find who speaks when (pyannote). Needs the HF_TOKEN setting and the model's terms
   # accepted on Hugging Face. pyannote's usage statistics are switched off.
   enabled: true
+  # 'voice_fingerprints' (default): one voice fingerprint per transcript line, then grouping.
+  #   Handles fast back-and-forth dialogue; on the Avengers clip pyannote's own grouping
+  #   merged three people (one of them the only woman) into one speaker.
+  # 'pyannote': pyannote's full speaker-diarization pipeline (fine for slow dialogue).
+  method: voice_fingerprints
+  # How different two voices must be to count as different people (0-2; lower = more people).
+  cluster_threshold: 0.7
   model: pyannote/speaker-diarization-3.1
   # Leave null to let pyannote decide how many people speak.
   min_speakers: null
   max_speakers: null
   # Below this share of a line's speech time, its speaker is marked "uncertain".
   min_confidence: 0.7
+
+script:
+  # Mark places where two people talk at once (uses pyannote's speaker turns, ~3 min on CPU).
+  detect_overlaps: true
 
 translation:
   model: facebook/nllb-200-distilled-600M

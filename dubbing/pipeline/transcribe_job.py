@@ -102,8 +102,14 @@ def run_transcription(
         asr_input = "original_mix"
     timings["prepare_audio_s"] = round(time.perf_counter() - started, 2)
 
+    from dubbing.script.glossary import clean_text, hotwords, load_glossary
+
+    terms = load_glossary(paths.glossary, extra=settings.asr.glossary)
+    if terms:
+        log.info("Glossary: %d names/terms to listen for (%s)", len(terms), paths.glossary.name)
+
     started = time.perf_counter()
-    result = transcribe(audio_path, settings.asr, settings.device, settings.source_language)
+    result = transcribe(audio_path, settings.asr, settings.device, settings.source_language, hotwords(terms))
     timings["transcribe_s"] = round(time.perf_counter() - started, 2)
 
     gap_report: list[dict[str, Any]] | None = None
@@ -121,8 +127,11 @@ def run_transcription(
         mix_path = extract_audio(tools, input_path, paths.temp_dir / f"{job_id}_mix16k.wav")
         mix16k, _ = read_mono(mix_path)
         result.segments, gap_report = fill_gaps(model, vocals16k, mix16k, result.segments,
-                                                settings.source_language or result.language)
+                                                settings.source_language or result.language, hotwords(terms))
         timings["fill_gaps_s"] = round(time.perf_counter() - started, 2)
+
+    for seg in result.segments:
+        seg["text"] = clean_text(seg["text"], terms)  # "S .H .I .E .L .D." -> "S.H.I.E.L.D."
 
     if not result.segments:
         log.warning("Whisper found no speech in this file. The transcript will have 0 segments.")
@@ -139,18 +148,26 @@ def run_transcription(
         from dubbing.diarization.speakers import diarize, label_segments
 
         started = time.perf_counter()
-        cached = json.loads(paths.diarization.read_text(encoding="utf-8")) if paths.diarization.is_file() else None
-        if cached and cached.get("source_sha256") == source_hash \
-                and cached.get("model") == settings.diarization.model:
-            turns = cached["turns"]  # same video, same model: reuse (it takes minutes on a CPU)
-            log.info("Re-using speaker detection from %s", paths.diarization.name)
-        else:
+        torch_device = "cuda" if settings.device == "cuda" else "cpu"
+        if settings.diarization.method == "voice_fingerprints":
+            from dubbing.diarization.speakers import label_segments_by_voice
+
             y16, sr16 = read_mono(audio_path)
-            turns = diarize(y16, sr16, settings.diarization.model, "cuda" if settings.device == "cuda" else "cpu",
-                            settings.diarization.min_speakers, settings.diarization.max_speakers)
-            write_json(paths.diarization, {"job_id": job_id, "model": settings.diarization.model,
-                                           "source_sha256": source_hash, "turns": turns})
-        result.segments = label_segments(result.segments, turns, settings.diarization.min_confidence)
+            result.segments = label_segments_by_voice(y16, sr16, result.segments,
+                                                      settings.diarization.cluster_threshold, torch_device)
+        else:
+            cached = json.loads(paths.diarization.read_text(encoding="utf-8")) if paths.diarization.is_file() else None
+            if cached and cached.get("source_sha256") == source_hash \
+                    and cached.get("model") == settings.diarization.model:
+                turns = cached["turns"]  # same video, same model: reuse (it takes minutes on a CPU)
+                log.info("Re-using speaker detection from %s", paths.diarization.name)
+            else:
+                y16, sr16 = read_mono(audio_path)
+                turns = diarize(y16, sr16, settings.diarization.model, torch_device,
+                                settings.diarization.min_speakers, settings.diarization.max_speakers)
+                write_json(paths.diarization, {"job_id": job_id, "model": settings.diarization.model,
+                                               "source_sha256": source_hash, "turns": turns})
+            result.segments = label_segments(result.segments, turns, settings.diarization.min_confidence)
         timings["diarize_s"] = round(time.perf_counter() - started, 2)
         per = {}
         for seg in result.segments:
@@ -159,6 +176,7 @@ def run_transcription(
                 p["segments"] += 1
                 p["speech_s"] = round(p["speech_s"] + seg["end"] - seg["start"], 2)
         speakers_info = {
+            "method": settings.diarization.method,
             "model": settings.diarization.model,
             "speaker_count": len(per),
             "speakers": per,

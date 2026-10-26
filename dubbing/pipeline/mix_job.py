@@ -16,6 +16,7 @@ import soundfile as sf
 from dubbing import __version__
 from dubbing.analysis.prosody import analyze_clip
 from dubbing.audio.clips import cut, place_on_timeline, read_mono, resample
+from dubbing.asr.listen import Listener
 from dubbing.audio.fit import plan_fit
 from dubbing.audio.nonverbal import candidate_regions, classify_regions, restore_mask
 from dubbing.config import Settings
@@ -62,26 +63,6 @@ def voice_onset(vocals: np.ndarray, sr: int, start: float, end: float) -> float:
     level = 20 * np.log10(np.maximum(np.sqrt((clip[: n * hop].reshape(n, hop) ** 2).mean(1)), 1e-10))
     loud = np.flatnonzero(level > level.max() - ONSET_BELOW_PEAK_DB)
     return round(a / sr + (loud[0] * hop / sr if loud.size else ONSET_LOOKBACK_S), 3)
-
-
-class _Listener:
-    """Whisper, used to tell laughs and sighs apart from real (untranslated) words."""
-
-    def __init__(self, settings: Settings, lang: str):
-        from faster_whisper import WhisperModel
-
-        from dubbing.asr.transcriber import resolve_device
-
-        device, compute_type = resolve_device(settings.device)
-        self.model = WhisperModel(settings.asr.model, device=device, compute_type=compute_type)
-        self.lang = lang
-
-    def heard(self, clip: np.ndarray, sr: int) -> str:
-        if len(clip) < sr * 0.2:
-            return ""
-        segments, _ = self.model.transcribe(resample(clip, sr, 16000), language=self.lang, beam_size=5,
-                                            vad_filter=False)
-        return " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
 
 
 def _speech_mask(placements, n_samples: int, sr: int) -> np.ndarray:
@@ -189,7 +170,7 @@ def run_mix(job_id: str, settings: Settings, lang: str = "hi", overwrite: bool =
         busy = [(p.start, p.start + p.duration) for p in placements]
         regions = candidate_regions(vocals_mono, MIX_SR, words, busy)
         if regions:
-            listener = _Listener(settings, transcript["language"])
+            listener = Listener(settings, transcript["language"])
             kept_sounds, untranslated = classify_regions(regions, vocals_mono, MIX_SR, listener.heard)
             vocals_stereo, _ = sf.read(str(paths.vocals), dtype="float32", always_2d=True)
             mix = mix + vocals_stereo[:n] * restore_mask(kept_sounds, n, MIX_SR)[:, None]

@@ -18,7 +18,7 @@ from dubbing.audio.nonverbal import candidate_regions, is_nonverbal_text
 log = logging.getLogger(__name__)
 
 PAD_S = 0.3            # listen a little either side of the stretch
-MIN_GAP_S = 0.5        # ignore audible stretches shorter than this
+MIN_GAP_S = 0.3        # ignore audible stretches shorter than this (0.5 missed "Chris." and "Good morning.")
 MIN_WORD_PROB = 0.3    # drop words Whisper itself is unsure of
 
 
@@ -28,9 +28,10 @@ def find_gaps(vocals: np.ndarray, sr: int, segments: list[dict[str, Any]]) -> li
     return [(a, b) for a, b in candidate_regions(vocals, sr, words, []) if b - a >= MIN_GAP_S]
 
 
-def _listen(model, clip: np.ndarray, offset: float, language: str | None) -> list[dict[str, Any]]:
+def _listen(model, clip: np.ndarray, offset: float, language: str | None,
+            hotwords: str | None = None) -> list[dict[str, Any]]:
     segments, _ = model.transcribe(clip, language=language, beam_size=5, vad_filter=False,
-                                   word_timestamps=True, condition_on_previous_text=False)
+                                   word_timestamps=True, condition_on_previous_text=False, hotwords=hotwords)
     found = []
     for seg in segments:
         words = [{"start": round(w.start + offset, 3), "end": round(w.end + offset, 3),
@@ -45,15 +46,15 @@ def _listen(model, clip: np.ndarray, offset: float, language: str | None) -> lis
 
 
 def fill_gaps(model, vocals16k: np.ndarray, mix16k: np.ndarray | None, segments: list[dict[str, Any]],
-              language: str | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+              language: str | None, hotwords: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (all segments in time order with recovered ones added, report of each gap)."""
     sr = 16000
     report, added = [], []
     for a, b in find_gaps(vocals16k, sr, segments):
         lo, hi = max(0.0, a - PAD_S), b + PAD_S
-        source, found = "vocals", _listen(model, vocals16k[int(lo * sr): int(hi * sr)], lo, language)
+        source, found = "vocals", _listen(model, vocals16k[int(lo * sr): int(hi * sr)], lo, language, hotwords)
         if not found and mix16k is not None:
-            source, found = "original_mix", _listen(model, mix16k[int(lo * sr): int(hi * sr)], lo, language)
+            source, found = "original_mix", _listen(model, mix16k[int(lo * sr): int(hi * sr)], lo, language, hotwords)
         # Only keep words that lie inside the gap (not words already transcribed nearby).
         found = [s for s in found if s["end"] > a - 0.05 and s["start"] < b + 0.05]
         report.append({"start": a, "end": b, "recovered": [s["text"] for s in found],

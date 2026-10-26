@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--overwrite", action="store_true", help="Replace this job's existing transcript")
     t.add_argument("--verbose", action="store_true", help="Show detailed log messages")
 
+    sc = sub.add_parser("script", help="Build the dubbing script (speakers, timings, sounds, voice samples) + review page")
+    sc.add_argument("--job-id", required=True)
+    sc.add_argument("--config", type=Path, help="Use a different config file")
+    sc.add_argument("--overwrite", action="store_true", help="Build the script again (e.g. after correcting speakers)")
+    sc.add_argument("--verbose", action="store_true", help="Show detailed log messages")
+
     tr = sub.add_parser("translate", help="Translate a job's transcript into the target language(s)")
     tr.add_argument("--job-id", required=True, help="The job whose transcript to translate")
     tr.add_argument("--to", help="Target language code(s), comma-separated, e.g. 'hi' (default: config.yaml)")
@@ -100,6 +106,12 @@ def main(argv: list[str] | None = None) -> int:
             setup_logging(JobPaths(settings.data_dir, job_id).log_file, verbose=args.verbose)
             out = run_transcription(Path(args.input), job_id, settings, overwrite=args.overwrite)
             print(f"\nDone. Transcript: {out}")
+        elif args.command == "script":
+            from dubbing.pipeline.script_job import run_script
+
+            setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
+            out = run_script(args.job_id, settings, overwrite=args.overwrite)
+            print(f"\nDone. Dubbing script: {out}\nReview page: {JobPaths(settings.data_dir, args.job_id).script_review}")
         elif args.command == "translate":
             from dubbing.pipeline.translate_job import run_translation
 
