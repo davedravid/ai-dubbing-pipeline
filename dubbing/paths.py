@@ -55,6 +55,39 @@ class JobPaths:
         return self.temp_dir / f"{self.job_id}_source24k.wav"
 
     @property
+    def source_stereo(self) -> Path:
+        """44.1 kHz stereo WAV of the original audio: the quality used for separation and mixing."""
+        return self.temp_dir / f"{self.job_id}_source44k.wav"
+
+    @property
+    def vocals(self) -> Path:
+        """Voices only, separated from the original audio by Demucs."""
+        return self.temp_dir / f"{self.job_id}_vocals.wav"
+
+    @property
+    def background(self) -> Path:
+        """Everything except voices (music, effects, ambience), separated by Demucs."""
+        return self.temp_dir / f"{self.job_id}_background.wav"
+
+    @property
+    def separation_report(self) -> Path:
+        return self.temp_dir / f"{self.job_id}_separation.json"
+
+    def dub_mix(self, lang: str) -> Path:
+        """Final dubbed soundtrack: background + dubbed voices, before encoding."""
+        return self.outputs_dir / f"{self.job_id}_{lang}.wav"
+
+    def dub_video(self, lang: str) -> Path:
+        return self.outputs_dir / f"{self.job_id}_{lang}.mp4"
+
+    @property
+    def qa_dir(self) -> Path:
+        return self.data_dir / "qa_reports"
+
+    def mix_report(self, lang: str) -> Path:
+        return self.qa_dir / f"{self.job_id}_{lang}_mix_qa.json"
+
+    @property
     def features_dir(self) -> Path:
         return self.data_dir / "features"
 

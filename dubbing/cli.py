@@ -60,6 +60,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Remake only lines that failed the checks last time; keep the rest")
     sp.add_argument("--verbose", action="store_true", help="Show detailed log messages")
 
+    se = sub.add_parser("separate", help="Split the original audio into voices and music/effects (Demucs)")
+    se.add_argument("--job-id", required=True)
+    se.add_argument("--config", type=Path, help="Use a different config file")
+    se.add_argument("--overwrite", action="store_true", help="Separate again")
+    se.add_argument("--verbose", action="store_true", help="Show detailed log messages")
+
+    mx = sub.add_parser("mix", help="Mix dubbed speech with the original music/effects and build the dubbed video")
+    mx.add_argument("--job-id", required=True)
+    mx.add_argument("--lang", default="hi", help="Dubbed language to mix (default: hi)")
+    mx.add_argument("--config", type=Path, help="Use a different config file")
+    mx.add_argument("--overwrite", action="store_true", help="Mix again, replacing the earlier video")
+    mx.add_argument("--verbose", action="store_true", help="Show detailed log messages")
+
     s = sub.add_parser("subtitles", help="Make a WebVTT (.vtt) subtitle file from a transcript or translation")
     s.add_argument("--job-id", required=True, help="The job to make subtitles for")
     s.add_argument("--lang", help="Language, e.g. 'en' or 'hi' (uses the translation if one exists)")
@@ -107,6 +120,18 @@ def main(argv: list[str] | None = None) -> int:
             out = run_speech(args.job_id, settings, lang=args.lang, overwrite=args.overwrite,
                              limit=args.limit, voice_mode=args.voice, redo_flagged=args.redo_flagged)
             print(f"\nDone. Speech manifest: {out}")
+        elif args.command == "separate":
+            from dubbing.pipeline.separate_job import run_separation
+
+            setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
+            out = run_separation(args.job_id, settings, overwrite=args.overwrite)
+            print(f"\nDone. Separation report: {out}")
+        elif args.command == "mix":
+            from dubbing.pipeline.mix_job import run_mix
+
+            setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
+            out = run_mix(args.job_id, settings, lang=args.lang, overwrite=args.overwrite)
+            print(f"\nDone. Dubbed video: {out}")
         elif args.command == "subtitles":
             from dubbing.pipeline.subtitles_job import run_subtitles
 

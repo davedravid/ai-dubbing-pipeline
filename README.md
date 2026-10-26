@@ -9,7 +9,7 @@ Current focus: **English → Hindi**.
 |---|---|---|
 | 2 | Video → audio extraction → timestamped transcript (JSON) | **Verified 2026-10-25**: 16 unit tests + 4 integration tests pass on a 4-min English clip (84 segments, English detected, about 1× real time on CPU) |
 | 3 | English → Hindi translation (NLLB-200 600M) with completeness checks and timing budget | **Verified 2026-10-25**: job_001's 84 segments → 69 sentence units, all translated, 100% Devanagari, 12 flagged for review; 47 unit + 2 model tests pass. Translation *quality* not yet reviewed by a native speaker |
-| 5 (early) | WebVTT subtitles (English and Hindi) | **Verified 2026-10-25**: FFmpeg reads all cues of both files. Embedding into video: not started |
+| 5 | Voice/music separation (Demucs), timing fixes, loudness matching, dubbed MP4 with switchable audio and subtitles | **Built and checked 2026-10-26**: job_001_hi.mp4 passes all 7 checks (plays, picture bit-identical, sound length within 0.005 s, loudness within 0.02 LU, no distortion, all 69 lines, all 161 captions); 0 words of original dialogue leaked into the background. **Open issue: 39 lines still overlap the next line (about 48 s in total) because the Hindi is too long; needs shorter translations.** Not yet watched by a person |
 | 4 | Delivery measurements + Hindi speech with XTTS v2 voice cloning, back-check, retries, invented-speech cut | **Verified 2026-10-26**: all 69 job_001 lines generated; median back-check error 12.5%; 0 lines with invented speech; 2 one-word lines still flagged (units 21 "जे।" and 61 "ठीक है।"; Whisper is unreliable on clips under 1 s, so these need a listen). Voices: 13 cloned from their own line, 30 from a nearby line, 26 built-in. 44 lines longer than their slot (Phase 5). 73 fast + 2 speech-model tests pass. **Not yet reviewed by ear** |
 | 5 | Mixing, video output, subtitles | Not started |
 | 6 | Multiple speakers | Not started |
@@ -148,6 +148,36 @@ music, effects or other voices over it. Film audio rarely is, which is why vocal
 | `low_intelligibility` | Even the best take failed the back-check: listen to it |
 | `flatter_than_original` | Pitch range over 4 semitones narrower than the original (less expressive) |
 
+### Making the dubbed video
+
+```powershell
+# 1) Split the original sound into voices and music/effects (about 2 min for 4 min of video)
+& "$env:USERPROFILE\.venvs\dubbing\Scripts\python.exe" -m dubbing separate --job-id job_001
+# 2) Mix the Hindi voices onto the music/effects and build the video
+& "$env:USERPROFILE\.venvs\dubbing\Scripts\python.exe" -m dubbing mix --job-id job_001 --lang hi
+```
+
+(`mix` runs `separate` by itself if it has not been run.)
+
+What `mix` does:
+
+1. **Keeps the music and effects:** Demucs separates the original voices from everything else; the
+   dubbed voices go on top of the "everything else" track. A leak check listens to that track with
+   Whisper and reports any original dialogue still audible in it.
+2. **Fixes overlaps, gentlest first:** use the pause after a line → start up to 0.3 s early → play it
+   up to 15% faster with the voice's pitch unchanged. Words are never cut and lines never start
+   later than the original. Lines that still do not fit are flagged `needs_shorter_translation`.
+3. **Loudness:** each dubbed line is set to the loudness of the original line it replaces; the music
+   dips by 2 dB under speech; the whole soundtrack is matched to the original's loudness (LUFS);
+   a limiter keeps peaks at or below -1 dB.
+4. **Builds the video:** the original picture is copied exactly (not re-encoded). Tracks: Hindi dub
+   (default), original English (switchable), Hindi and English subtitles (switchable). MP4 turns
+   on the first subtitle track automatically in some players; viewers can switch it off.
+5. **Checks** (in `data/qa_reports/<job>_<lang>_mix_qa.json`): plays without errors, picture
+   identical to the original, sound the same length as the picture, loudness within 1 LU of the
+   original, no distortion, every line present, all subtitle captions present. It also lists the
+   times worth a listen.
+
 ## Where files go
 
 | File | What it is |
@@ -160,6 +190,10 @@ music, effects or other voices over it. Film audio rarely is, which is why vocal
 | `data/tts/<job>_<lang>/unit_NNN.wav` | One dubbed WAV per sentence unit |
 | `data/tts/<job>_<lang>.json` | Speech manifest: voice used, speed, takes, back-check, delivery comparison, flags |
 | `data/outputs/<job>_<lang>_speech_preview.wav` | All dubbed lines placed on the video's timeline (speech only, not yet mixed) |
+| `data/outputs/<job>_<lang>.mp4` | **The dubbed video** |
+| `data/outputs/<job>_<lang>.wav` | The final dubbed soundtrack (music/effects + dubbed voices) |
+| `data/qa_reports/<job>_<lang>_mix_qa.json` | Checks on the dubbed video, timing fixes, loudness, what to listen to |
+| `data/temp/<job>_vocals.wav`, `_background.wav` | Original voices and music/effects, separated by Demucs |
 | `data/temp/<job>_asr16k.wav`, `_source24k.wav` | Audio extracted for recognition / analysis (safe to delete) |
 | `data/logs/<job>.log` | Detailed log of the run |
 
@@ -189,7 +223,7 @@ $env:DUBBING_TEST_VIDEO = "C:\path\to\english_video.mp4"
 
 ## Licensing and consent
 
-Whisper/faster-whisper are MIT-licensed. NLLB-200 and MMS are CC-BY-NC 4.0, and XTTS v2 is under the
+Whisper/faster-whisper and Demucs are MIT-licensed. NLLB-200 and MMS are CC-BY-NC 4.0, and XTTS v2 is under the
 Coqui Public Model License; all three are for **non-commercial use only**. The CPML was accepted on
 2026-10-25 for internal testing (`tts.accept_coqui_license` in config.yaml).
 

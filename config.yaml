@@ -61,6 +61,32 @@ tts:
   # built-in voice instead and flag it. Understandable beats an exact voice match.
   clarity_fallback: true
 
+mix:
+  # Demucs model that separates voices from music/effects (htdemucs = Meta's default).
+  demucs_model: htdemucs
+  # Listen to the separated background with Whisper to find dialogue that leaked through.
+  leak_check: true
+  # Fixing lines that are too long, gentlest first:
+  #   1) use the pause after the line, 2) start up to this many seconds early...
+  max_early_start_s: 0.3
+  # ...always keeping at least this much silence between two lines...
+  min_gap_s: 0.08
+  #   3) ...then play the line at most this much faster (pitch unchanged).
+  #   Anything still too long is flagged "needs_shorter_translation".
+  max_tighten: 1.15
+  # Set each dubbed line to the loudness of the original line it replaces.
+  match_line_loudness: true
+  max_line_gain_db: 12.0
+  # Lower the music/effects this much while someone is speaking, so voices stay clear.
+  background_dip_db: 2.0
+  # Safety limiter: the loudest point of the final soundtrack (dB below maximum).
+  limiter_peak_db: -1.0
+  # Keep the original English soundtrack as a second, switchable audio track.
+  include_original_audio: true
+  # Put Hindi and English subtitles inside the video as switchable tracks.
+  embed_subtitles: true
+  audio_bitrate: 192k
+
 presets:
   fast:
     asr_model: medium

@@ -18,3 +18,7 @@ sentencepiece==0.2.2
 coqui-tts==0.28.0
 torchaudio==2.11.0
 torchcodec==0.17.0
+
+# Phase 5 (separation, loudness)
+demucs==4.1.0
+pyloudnorm==0.2.0
