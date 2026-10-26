@@ -67,11 +67,28 @@ def run_translate_script(job_id: str, settings: Settings, lang: str = "hi", over
     names = load_name_spellings(paths.glossary)
     variants = load_name_variants(paths.glossary)
     register = settings.translation.register
-    lines = script["lines"]
+    # English corrections you accepted in the story phase replace the mis-heard lines.
+    from dubbing.context import corrections as corr
+
+    accepted = {lid: c["suggested"] for lid, c in corr.load(paths.corrections_file).items()
+                if c.get("accept") in (True, "yes", "y", "true") and c.get("suggested")}
+    lines = [{**l, "text": accepted.get(l["id"], l["text"]), "english_corrected": l["id"] in accepted}
+             for l in script["lines"]]
     by_line = {l["id"]: l for l in lines}
     units = build_units(lines)
     total_s = float(script["source"]["duration_s"])
     timings: dict[str, float] = {}
+
+    # The story bible (Phase A2), if built for this same script: who each line is spoken to.
+    story = json.loads(paths.story.read_text(encoding="utf-8")) if paths.story.is_file() else None
+    if story and story.get("source_script_sha256") != file_sha256(paths.script):
+        log.warning("The story bible was built for an older script; it is not used. Run 'story --overwrite'.")
+        story = None
+    listener = {int(k): v for k, v in (story or {}).get("lines", {}).items()}
+
+    # How fast the voice model really speaks Hindi (measured), and how much faster the speech
+    # and mix steps can still make a line; used to judge whether a wording fits its time.
+    speech_cps = settings.translation.speech_chars_per_second * settings.translation.max_speedup
 
     # Time available: from where this sentence starts until the next one starts.
     starts = [u["start"] for u in units]
@@ -82,6 +99,10 @@ def run_translate_script(job_id: str, settings: Settings, lang: str = "hi", over
         wps = words / max(u["end"] - u["start"], 0.3)
         u["pace"] = round(min(max(wps / TYPICAL_WORDS_PER_S, PACE_RANGE[0]), PACE_RANGE[1]), 2)
         u["gender"] = (script["speakers"].get(u.get("speaker") or "") or {}).get("gender")
+        first = listener.get(u["source_segment_ids"][0], {})
+        u["listener"] = first.get("addressee") or []
+        u["listener_gender"] = first.get("addressee_gender")
+        u["listener_confidence"] = first.get("confidence")
 
     texts = [protect_names(u["text"], names) for u in units]
     n = settings.translation.alternatives + 1
@@ -109,17 +130,21 @@ def run_translate_script(job_id: str, settings: Settings, lang: str = "hi", over
 
     out_units = []
     for u, options in zip(units, candidates):
-        chosen, scored = choose(options, u["text"], backs, u["available_s"], target.chars_per_second, u["pace"])
+        chosen, scored = choose(options, u["text"], backs, u["available_s"], speech_cps, 1.0, slack=1.0)
         # If every option ran away (e.g. a word repeated 13 times), trim the repeats to the English's count.
         max_repeat = max(1, _longest_run(u["text"])) if chosen.get("runaway") else None
+        # Only a confident "spoken to one woman" changes the verbs; unsure lines keep the default form.
+        listener_gender = u["listener_gender"] if u.get("listener_confidence") == "high" else None
         spoken = make_spoken(chosen["text"], u["gender"], register, names, english=u["text"], variants=variants,
-                             max_repeat=max_repeat)
+                             max_repeat=max_repeat, listener_gender=listener_gender)
         flags, _ = check_translation(u["text"], spoken.text, source, target, u["end"] - u["start"],
                                      u["available_s"], 14.0 * u["pace"])
         flags = [f for f in flags if f in QUALITY_FLAGS]
-        est = len(spoken.text) / (target.chars_per_second * u["pace"])
-        if est > u["available_s"] * FIT_SLACK:
+        est = len(spoken.text) / speech_cps
+        if est > u["available_s"]:
             flags.append("may_not_fit")
+        if u["listener_gender"] == "female" and listener_gender is None:
+            flags.append("listener_maybe_female")
         if chosen["meaning"] < LOW_MEANING:
             flags.append("check_meaning")
         if max_repeat is not None:
@@ -134,6 +159,9 @@ def run_translate_script(job_id: str, settings: Settings, lang: str = "hi", over
             "speaker": u.get("speaker"),
             "speaker_gender": u["gender"],
             "speaker_uncertain": u.get("speaker_uncertain", True),
+            "listener": u["listener"], "listener_gender": u["listener_gender"],
+            "listener_confidence": u["listener_confidence"],
+            "english_corrected": any(by_line[i].get("english_corrected") for i in u["source_segment_ids"]),
             "start": u["start"], "end": u["end"], "available_s": u["available_s"], "pace": u["pace"],
             "source_text": u["text"],
             "text": spoken.text,                 # what will be spoken

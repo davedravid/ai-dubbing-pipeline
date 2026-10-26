@@ -63,6 +63,8 @@ class TranslationSettings:
     engine: str
     indictrans_model: str
     register: str
+    speech_chars_per_second: float
+    max_speedup: float
 
 
 VOICE_MODES = {"clone", "standard"}
@@ -162,6 +164,8 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
         engine=tr_raw.get("engine", "indictrans2"),
         indictrans_model=tr_raw.get("indictrans_model", "ai4bharat/indictrans2-en-indic-dist-200M"),
         register=tr_raw.get("register", "tum"),
+        speech_chars_per_second=float(tr_raw.get("speech_chars_per_second", 7.8)),
+        max_speedup=float(tr_raw.get("max_speedup", 1.5)),
     )
     if translation.engine not in ("indictrans2", "nllb"):
         raise ConfigError("translation.engine must be 'indictrans2' or 'nllb'")

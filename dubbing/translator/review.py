@@ -33,6 +33,7 @@ FLAG_HELP = {
     "may_not_fit": "Hindi may be too long for the time the actor took",
     "check_meaning": "back-translation is far from the English: check the meaning",
     "speaker_uncertain": "speaker (so gender) may be wrong",
+    "listener_maybe_female": "probably said to a woman, but not sure: check the 'you' verb forms",
     "english_unsure": "Whisper was unsure of some English words",
     "wrong_script": "words not in Hindi script", "repetition": "a word repeats", "unusual_length": "odd length",
 }
@@ -47,6 +48,10 @@ def write_translation_review(result: dict[str, Any], out_path: Path, video_path:
     rows = []
     for u in result["segments"]:
         g = {"male": "♂", "female": "♀"}.get(u.get("speaker_gender") or "", "?")
+        to = ", ".join("a group" if a == "group" else a for a in (u.get("listener") or []))
+        lg = {"male": "♂", "female": "♀"}.get(u.get("listener_gender") or "", "")
+        listener_html = (f'<br><span class="muted">→ {html.escape(to)} {lg} ({html.escape(str(u.get("listener_confidence")))})</span>'
+                         if to else "")
         fit = (f'<span class="{"fit-bad" if "may_not_fit" in u["flags"] else "fit-ok"}">'
                f'≈{u["est_speech_s"]} s of {u["available_s"]} s</span>')
         flags = "".join(f'<span class="flag" title="{html.escape(FLAG_HELP.get(f, f))}">{html.escape(f)}</span>'
@@ -59,7 +64,7 @@ def write_translation_review(result: dict[str, Any], out_path: Path, video_path:
         rows.append(
             f'<tr><td class="t"><a data-t="{u["start"]}">{_t(u["start"])}</a><br>'
             f'<span class="muted">{u["end"] - u["start"]:.2f} s</span></td>'
-            f'<td>{html.escape(str(u.get("speaker")))} {g}</td>'
+            f'<td>{html.escape(str(u.get("speaker")))} {g}{listener_html}</td>'
             f'<td>{html.escape(u["source_text"])}</td>'
             f'<td><div class="hi">{html.escape(u["text"])}</div>'
             f'<div class="muted">back to English: “{html.escape(u["back_translation"])}” · meaning {u["meaning_score"]:.0f}/100</div>'

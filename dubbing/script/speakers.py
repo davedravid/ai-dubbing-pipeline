@@ -35,6 +35,24 @@ def load_overrides(path: Path) -> dict[str, dict[str, Any]]:
     return {str(k): (v or {}) for k, v in (data.get("speakers") or {}).items()}
 
 
+def load_line_overrides(path: Path) -> dict[int, str]:
+    """Per-line speaker corrections: 'lines: {3: S1, 5: S4}' in the corrections file."""
+    if not path.is_file():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {int(k): str(v) for k, v in (data.get("lines") or {}).items() if v}
+
+
+def apply_line_overrides(lines: list[dict[str, Any]], line_overrides: dict[int, str]) -> list[dict[str, Any]]:
+    """Your per-line speaker corrections win; a new label (e.g. S4) creates a new speaker."""
+    for line in lines:
+        target = line_overrides.get(line["id"])
+        if target:
+            line["speaker_detected"] = line.get("speaker")
+            line.update(speaker=target, speaker_uncertain=False, speaker_corrected=True)
+    return lines
+
+
 def apply_merges(lines: list[dict[str, Any]], overrides: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """'same_as: S2' in the corrections file relabels a speaker as another one."""
     for line in lines:
@@ -50,10 +68,12 @@ def write_overrides_template(path: Path, profiles: dict[str, dict[str, Any]]) ->
     if path.exists():
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    out = ["# Your corrections for the detected speakers. Edit and run 'script' again.",
+    out = ["# Your corrections for the detected speakers. Edit and run 'script --overwrite' again.",
            "#   name:    who it is (e.g. Banner)",
            "#   gender:  male / female (overrides the pitch-based guess)",
            "#   same_as: another label, if two labels are really the same person",
+           "# Single lines with the wrong speaker go under 'lines' at the bottom, e.g.  3: S1",
+           "# (a new label such as S4 creates a new speaker; give it a gender under 'speakers').",
            "speakers:"]
     for spk, p in profiles.items():
         out.append(f"  {spk}:   # detected: {p['gender_detected']} ({p['median_pitch_hz']} Hz), "
@@ -61,6 +81,7 @@ def write_overrides_template(path: Path, profiles: dict[str, dict[str, Any]]) ->
         out.append("    name: null")
         out.append("    gender: null")
         out.append("    same_as: null")
+    out += ["lines:", "  # 3: S1"]
     path.write_text("\n".join(out) + "\n", encoding="utf-8")
     return True
 

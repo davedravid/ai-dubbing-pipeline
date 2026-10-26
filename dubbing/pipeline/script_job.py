@@ -30,7 +30,8 @@ from dubbing.script.delivery import add_styles, measure_line
 from dubbing.script.events import find_sounds, overlaps_from_turns
 from dubbing.script.glossary import clean_text, load_glossary
 from dubbing.script.review import LOW_CONFIDENCE, write_review
-from dubbing.script.speakers import apply_merges, build_profiles, load_overrides, write_overrides_template
+from dubbing.script.speakers import (apply_line_overrides, apply_merges, build_profiles, load_line_overrides,
+                                     load_overrides, write_overrides_template)
 from dubbing.script.timing import Envelope, breath_groups, pauses
 from dubbing.subtitles.vtt import write_vtt
 
@@ -108,6 +109,7 @@ def run_script(job_id: str, settings: Settings, overwrite: bool = False) -> Path
             line["split_from_two_voices"] = seg["split_from_two_voices"]
         lines.append(line)
     lines = apply_merges(lines, overrides)
+    lines = apply_line_overrides(lines, load_line_overrides(paths.speaker_overrides))
     timings["lines_s"] = round(time.perf_counter() - started, 2)
 
     started = time.perf_counter()
@@ -137,7 +139,9 @@ def run_script(job_id: str, settings: Settings, overwrite: bool = False) -> Path
             flags.append("recovered")
         if "split_from_two_voices" in line:
             flags.append("split_two_voices")
-        if seg_by_id.get(line["id"], {}).get("speaker_reassigned_from"):
+        if line.get("speaker_corrected"):
+            flags.append("speaker_corrected_by_you")
+        elif seg_by_id.get(line["id"], {}).get("speaker_reassigned_from"):
             flags.append("speaker_merged_from_tiny_group")
         if (line["delivery"].get("words_per_s") or 0) > VERY_FAST_WPS:
             flags.append("very_fast")

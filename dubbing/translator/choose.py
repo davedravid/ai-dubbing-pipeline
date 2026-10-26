@@ -36,10 +36,10 @@ def _repeats(text: str, run: int = 3) -> bool:
 
 
 def score_option(text: str, source: str, back: str, slot_s: float, chars_per_second: float,
-                 pace: float) -> dict[str, Any]:
+                 pace: float, slack: float = FIT_SLACK) -> dict[str, Any]:
     meaning = chrf(source, back)
     est = estimated_seconds(text, chars_per_second, pace)
-    over = max(0.0, est / max(slot_s, 0.3) - FIT_SLACK)
+    over = max(0.0, est / max(slot_s, 0.3) - slack)
     latin = len(re.findall(r"[A-Za-z]{2,}", text))  # English words left in a Hindi line
     # Repeating far more than the English did ("No, no, no." -> thirteen "नो"), or being far
     # longer than the English, means the model ran away.
@@ -61,9 +61,10 @@ def _longest_run(text: str) -> int:
 
 
 def choose(options: list[str], source: str, backs: dict[str, str], slot_s: float,
-           chars_per_second: float, pace: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Return (chosen option, all options scored best-first)."""
-    scored = [score_option(t, source, backs.get(t, ""), slot_s, chars_per_second, pace) for t in options if t]
+           chars_per_second: float, pace: float, slack: float = FIT_SLACK) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return (chosen option, all options scored best-first). `slack` is how much longer than the
+    slot is still acceptable (1.0 when `chars_per_second` already includes any speed-up)."""
+    scored = [score_option(t, source, backs.get(t, ""), slot_s, chars_per_second, pace, slack) for t in options if t]
     scored.sort(key=lambda o: o["score"], reverse=True)
     if not scored:
         empty = {"text": "", "back_translation": "", "meaning": 0.0, "est_s": 0.0, "latin_words": 0,

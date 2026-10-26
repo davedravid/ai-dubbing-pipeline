@@ -76,6 +76,23 @@ def test_runaway_repeats_and_abbreviation_dots():
     assert make_spoken("क्या तुम डॉ. बैनर को ले जाओगे?", "male").text == "क्या तुम डॉक्टर बैनर को ले जाओगे?"
 
 
+@pytest.mark.parametrize("hindi, to_woman", [
+    ("तुम क्या कर रहे हो?", "तुम क्या कर रही हो?"),
+    ("क्या तुम उसे ले जाओगे?", "क्या तुम उसे ले जाओगी?"),
+    ("तुम यह कर सकते हो।", "तुम यह कर सकती हो।"),
+    ("तुम अकेले नहीं जा रहे हो।", "तुम अकेले नहीं जा रही हो।"),
+])
+def test_verbs_when_speaking_to_a_woman(hindi, to_woman):
+    assert make_spoken(hindi, "male", listener_gender="female").text == to_woman
+    assert make_spoken(hindi, "male", listener_gender="male").text == hindi
+    assert make_spoken(hindi, "male", listener_gender="male_or_mixed_group").text == hindi
+
+
+def test_group_and_other_subjects_are_left_alone():
+    assert make_spoken("तुम लोग क्या कर रहे हो?", "male", listener_gender="female").text == "तुम लोग क्या कर रहे हो?"
+    assert make_spoken("वे जा रहे थे।", "male", listener_gender="female").text == "वे जा रहे थे।"
+
+
 def test_dotted_names_are_protected_before_translating():
     from dubbing.translator.spoken import protect_names
 

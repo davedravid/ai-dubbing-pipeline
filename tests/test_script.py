@@ -111,6 +111,18 @@ def test_merge_two_labels_into_one_person(tmp_path: Path):
     assert [l["speaker"] for l in lines] == ["S2", "S2"] and lines[0]["speaker_detected"] == "S4"
 
 
+def test_single_line_speaker_corrections(tmp_path: Path):
+    from dubbing.script.speakers import apply_line_overrides, load_line_overrides
+
+    f = tmp_path / "s.yaml"
+    f.write_text("speakers:\n  S4:\n    gender: male\nlines:\n  3: S1\n  5: S4\n", encoding="utf-8")
+    lines = [_line(3, "S2", 0, 1, uncertain=True), _line(5, "S2", 1, 2, uncertain=True), _line(6, "S2", 2, 3)]
+    out = apply_line_overrides(lines, load_line_overrides(f))
+    assert [l["speaker"] for l in out] == ["S1", "S4", "S2"]
+    assert out[0]["speaker_corrected"] and not out[0]["speaker_uncertain"] and out[0]["speaker_detected"] == "S2"
+    assert build_profiles(out, load_overrides(f))["S4"]["gender"] == "male"
+
+
 def test_corrections_template_is_created_once(tmp_path: Path):
     f = tmp_path / "speakers" / "job.yaml"
     profiles = build_profiles([_line(0, "S1", 0, 2, 120)], {})

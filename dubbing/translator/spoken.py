@@ -102,6 +102,35 @@ def feminine_first_person(text: str, changes: list[str]) -> str:
     return "".join(parts)
 
 
+# "You" verb forms when speaking to ONE woman with तुम: तुम ... रहे हो -> रही हो, जाओगे -> जाओगी.
+TO_WOMAN: dict[str, str] = {
+    "रहे": "रही", "सकते": "सकती", "चाहते": "चाहती", "करते": "करती", "जाते": "जाती", "होते": "होती",
+    "गए": "गई", "आए": "आई", "थे": "थी", "हुए": "हुई", "लगे": "लगी", "चुके": "चुकी", "पाए": "पाई",
+    "जानते": "जानती", "सोचते": "सोचती", "समझते": "समझती", "कहते": "कहती", "देते": "देती", "लेते": "लेती",
+    "बैठे": "बैठी", "मानते": "मानती", "रखते": "रखती",
+}
+
+
+def addressed_to_woman(text: str, changes: list[str]) -> str:
+    """In clauses whose subject is तुम (one listener, a woman), make the verbs feminine."""
+    parts = CLAUSE_SPLIT.split(text)
+    for i, clause in enumerate(parts):
+        if not re.search(r"(?<![ऀ-ॣ०-ॿ])तुम(?![ऀ-ॣ०-ॿ])", clause):
+            continue
+        if re.search(r"तुम लोग", clause):
+            continue  # a group: masculine plural stays
+        clause = _replace_words(clause, TO_WOMAN, "speaking to a woman", changes)
+
+        def fem_future(m: re.Match) -> str:  # जाओगे -> जाओगी, करोगे -> करोगी
+            changes.append(f"speaking to a woman: {m.group(0)} → {m.group(0)[:-1]}ी")
+            return m.group(0)[:-1] + "ी"
+        # "-ओगे" is written with the vowel mark (करोगे) or the full vowel letter (जाओगे)
+        clause = re.sub(r"(?<![ऀ-ॣ०-ॿ])[ऀ-ॣ०-ॿ]*(?:ो|ओ)गे(?![ऀ-ॣ०-ॿ])",
+                        fem_future, clause)
+        parts[i] = clause
+    return "".join(parts)
+
+
 def to_tum(text: str, changes: list[str]) -> str:
     """आप -> तुम (with the matching verb, हैं -> हो) and polite commands -> familiar ones."""
     text = text.replace(_REFLEXIVE, _REFLEXIVE_HOLD)
@@ -170,7 +199,8 @@ def remove_runaway_repeats(text: str, max_run: int, changes: list[str]) -> str:
 
 def make_spoken(text: str, speaker_gender: str | None, register: str = "tum",
                 names: dict[str, str] | None = None, english: str | None = None,
-                variants: dict[str, str] | None = None, max_repeat: int | None = None) -> SpokenResult:
+                variants: dict[str, str] | None = None, max_repeat: int | None = None,
+                listener_gender: str | None = None) -> SpokenResult:
     changes: list[str] = []
     if max_repeat is not None:
         text = remove_runaway_repeats(text, max_repeat, changes)
@@ -184,6 +214,8 @@ def make_spoken(text: str, speaker_gender: str | None, register: str = "tum",
         out = feminine_first_person(out, changes)
     if register == "tum":
         out = to_tum(out, changes)
+        if listener_gender == "female":   # one woman is being spoken to (from the story bible)
+            out = addressed_to_woman(out, changes)
     out = re.sub(r"\.(?=\s|$)", "।", " ".join(out.split()))  # Hindi full stop
     out = match_end_punctuation(out, english, changes)
     return SpokenResult(out, changes)

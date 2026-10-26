@@ -79,6 +79,11 @@ translation:
   indictrans_model: ai4bharat/indictrans2-en-indic-dist-200M
   # 'tum' = familiar (friends, arguments) or 'aap' = respectful (formal scenes).
   register: tum
+  # How fast the voice model (XTTS) speaks Hindi at normal speed, MEASURED on the Avengers clip
+  # (the old guess of 13 was far too optimistic), and how much faster the speech and mix steps
+  # can still make a line (1.3 x 1.15). Used to pick wordings that fit before any speech is made.
+  speech_chars_per_second: 7.8
+  max_speedup: 1.5
   model: facebook/nllb-200-distilled-600M
   # Texts translated together; lower it if the computer runs out of memory.
   batch_size: 8
