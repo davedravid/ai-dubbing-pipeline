@@ -10,7 +10,7 @@ Current focus: **English → Hindi**.
 | 2 | Video → audio extraction → timestamped transcript (JSON) | **Verified 2026-10-25**: 16 unit tests + 4 integration tests pass on a 4-min English clip (84 segments, English detected, about 1× real time on CPU) |
 | 3 | English → Hindi translation (NLLB-200 600M) with completeness checks and timing budget | **Verified 2026-10-25**: job_001's 84 segments → 69 sentence units, all translated, 100% Devanagari, 12 flagged for review; 47 unit + 2 model tests pass. Translation *quality* not yet reviewed by a native speaker |
 | 5 (early) | WebVTT subtitles (English and Hindi) | **Verified 2026-10-25**: FFmpeg reads all cues of both files. Embedding into video: not started |
-| 4 | Delivery measurements + Hindi speech with XTTS v2 voice cloning, back-check, retries | **In progress (2026-10-25)**: all 69 job_001 lines generated; 3 still unclear, 2 with invented speech, 12 use the built-in voice for clarity, 44 longer than their slot (Phase 5). 71 fast tests pass; speech model tests not yet run; not yet reviewed by ear |
+| 4 | Delivery measurements + Hindi speech with XTTS v2 voice cloning, back-check, retries, invented-speech cut | **Verified 2026-10-26**: all 69 job_001 lines generated; median back-check error 12.5%; 0 lines with invented speech; 2 one-word lines still flagged (units 21 "जे।" and 61 "ठीक है।"; Whisper is unreliable on clips under 1 s, so these need a listen). Voices: 13 cloned from their own line, 30 from a nearby line, 26 built-in. 44 lines longer than their slot (Phase 5). 73 fast + 2 speech-model tests pass. **Not yet reviewed by ear** |
 | 5 | Mixing, video output, subtitles | Not started |
 | 6 | Multiple speakers | Not started |
 | 7 | Vocal separation, caching, QA reports | Not started |
@@ -116,6 +116,25 @@ For each sentence unit:
 
 Every WAV is labelled **AI-generated** in its metadata.
 
+Remake only the lines that failed the checks (keeps all other lines):
+
+```powershell
+& "$env:USERPROFILE\.venvs\dubbing\Scripts\python.exe" -m dubbing speak --job-id job_001 --lang hi --redo-flagged
+```
+
+**Known limits:** XTTS is unreliable on one-word lines (it may add sounds after the word; the
+pipeline cuts those off at the first pause), and the Whisper back-check is unreliable on clips
+under a second, so very short lines should be checked by ear. Until speaker detection (Phase 6),
+lines under 3 s borrow a nearby line's voice, which may belong to another character.
+
+**Fallback voice (Meta MMS):** not used for Hindi, because XTTS v2 supports Hindi and MMS cannot
+clone voices. MMS would only matter for languages XTTS lacks (e.g. Telugu, Odia); asking for those
+today gives a clear "not built yet" error.
+
+**What makes a good voice reference:** at least 3 seconds of one person speaking clearly, without
+music, effects or other voices over it. Film audio rarely is, which is why vocal separation
+(Demucs) is planned next to the mixing work.
+
 | Speech flag | Meaning |
 |---|---|
 | `reference_borrowed` | Voice taken from a nearby line (may be another speaker) |
@@ -123,6 +142,9 @@ Every WAV is labelled **AI-generated** in its metadata.
 | `reference_mostly_silence` / `_clipped` / `_very_quiet` | Weak reference audio |
 | `overruns_slot` | Still longer than its slot at maximum speed (Phase 5 must handle it) |
 | `retried` | First take failed the back-check |
+| `invented_speech` | XTTS kept talking after the real words, and it could not be cut away |
+| `tail_cut` | Invented speech after the words was cut off at the first pause (check the ending) |
+| `clarity_fallback_builtin` | The cloned voice could not be understood, so the built-in voice was used |
 | `low_intelligibility` | Even the best take failed the back-check: listen to it |
 | `flatter_than_original` | Pitch range over 4 semitones narrower than the original (less expressive) |
 

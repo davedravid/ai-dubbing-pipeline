@@ -39,6 +39,11 @@ FLATTER_THAN_ORIGINAL_ST = -4.0
 # text needs (at normal pace) is treated as invented speech and rejected.
 MAX_DURATION_FACTOR = 2.5
 MIN_SUSPECT_DURATION_S = 1.5
+# Where to look for the end of the real words: a quiet stretch at least this long...
+PAUSE_MIN_S = 0.12
+PAUSE_BELOW_PEAK_DB = 30.0
+# ...starting after this share of the line's expected length.
+PAUSE_SEARCH_FROM = 0.6
 
 
 def _trim(y: np.ndarray, sr: int) -> np.ndarray:
@@ -59,6 +64,29 @@ def is_invented_speech(duration_s: float, speed: float, text: str, lang: Languag
     """True if a take is far longer than its text could need: XTTS invented extra speech."""
     limit = max(MIN_SUSPECT_DURATION_S, expected_duration_s(text, lang) * MAX_DURATION_FACTOR / speed)
     return duration_s > limit
+
+
+def cut_at_first_pause(y: np.ndarray, sr: int, after_s: float,
+                       min_gap_s: float = PAUSE_MIN_S, below_peak_db: float = PAUSE_BELOW_PEAK_DB) -> np.ndarray | None:
+    """Cut `y` at the first pause that starts after `after_s` seconds.
+
+    Invented speech from XTTS comes AFTER the real words, usually following a short
+    pause, so cutting there keeps the line and drops the babble. None = no pause found."""
+    hop = 256
+    n = len(y) // hop
+    if n == 0:
+        return None
+    frames = y[: n * hop].reshape(n, hop)
+    level = 20 * np.log10(np.maximum(np.sqrt(np.mean(frames ** 2, axis=1)), 1e-10))
+    quiet = level < level.max() - below_peak_db
+    need = max(1, int(round(min_gap_s * sr / hop)))
+    run = 0
+    for i in range(int(after_s * sr / hop), n):
+        run = run + 1 if quiet[i] else 0
+        if run >= need:
+            cut_at = (i - run + 1) * hop + int(TRIM_PAD_S * sr)
+            return y[:cut_at] if cut_at < len(y) else None
+    return None
 
 
 class _BackChecker:
@@ -85,34 +113,47 @@ def _generate_line(
     target: Language,
     voice: Voice,
     available_s: float,
+    voice_label: str = "primary",
 ) -> dict[str, Any]:
     """Make up to MAX_TAKES takes of one line and return the best.
 
     Each take is generated at normal speed and, if too long for its slot, once more faster.
+    A take with invented speech is cut at the first pause after the real words.
     A take passes if it is not invented speech and the back-check understood it."""
     sr = synth.sample_rate
+
+    def make(speed: float, take: int) -> tuple[np.ndarray, bool, bool]:
+        """Generate, then cut off any invented speech. Returns (audio, still_invented, was_cut)."""
+        y = _trim(synth.speak(text, target.xtts, voice, speed, seed_offset=take), sr)
+        if not is_invented_speech(len(y) / sr, speed, text, target):
+            return y, False, False
+        shorter = cut_at_first_pause(y, sr, expected_duration_s(text, target) / speed * PAUSE_SEARCH_FROM)
+        if shorter is None:
+            return y, True, False
+        return shorter, is_invented_speech(len(shorter) / sr, speed, text, target), True
+
     attempts: list[dict[str, Any]] = []
     best: dict[str, Any] | None = None
     for take in range(MAX_TAKES if checker is not None else 1):
         speed = 1.0
-        y = _trim(synth.speak(text, target.xtts, voice, speed, seed_offset=take), sr)
+        y, invented, tail_cut = make(speed, take)
         if len(y) / sr > available_s and settings.tts.max_speed > 1.0:
             speed = round(min(settings.tts.max_speed, len(y) / sr / available_s * 1.03), 2)
-            y = _trim(synth.speak(text, target.xtts, voice, speed, seed_offset=take), sr)
+            y, invented, tail_cut = make(speed, take)
         duration = len(y) / sr
-        invented = is_invented_speech(duration, speed, text, target)
         heard, cer = None, None
         if checker is not None:
             heard = checker.heard(y, sr, target.code)
             cer = char_error_rate(text, heard)
         passed = not invented and (cer is None or cer <= LOW_INTELLIGIBILITY_CER)
-        attempts.append({"take": take, "speed": speed, "duration_s": round(duration, 3),
-                         "char_error_rate": cer, "invented_speech": invented, "passed": passed})
+        attempts.append({"voice": voice_label, "take": take, "speed": speed, "duration_s": round(duration, 3),
+                         "char_error_rate": cer, "invented_speech": invented, "tail_cut": tail_cut,
+                         "passed": passed})
         # Prefer takes without invented speech, then the lowest error rate.
         score = (invented, cer if cer is not None else 0.0)
         if best is None or score < best["score"]:
             best = {"y": y, "speed": speed, "heard": heard, "cer": cer, "invented": invented,
-                    "passed": passed, "score": score}
+                    "tail_cut": tail_cut, "passed": passed, "score": score}
         if passed:
             break
     assert best is not None
@@ -250,8 +291,9 @@ def run_speech(
 
         # Clarity comes first: if the cloned voice could not be understood, try the clear built-in voice.
         if not result["passed"] and voice is not standard and settings.tts.clarity_fallback:
-            fallback = _generate_line(synth, checker, settings, spoken_text, target, standard, available)
-            result["attempts"] += [{**a, "voice": "built-in"} for a in fallback["attempts"]]
+            fallback = _generate_line(synth, checker, settings, spoken_text, target, standard, available,
+                                      voice_label="built-in fallback")
+            result["attempts"] += fallback["attempts"]
             if fallback["score"] < result["score"]:
                 fallback["attempts"] = result["attempts"]
                 result, voice = fallback, standard
@@ -263,6 +305,8 @@ def run_speech(
             flags.append("retried")
         if result["invented"]:
             flags.append("invented_speech")
+        if result["tail_cut"]:
+            flags.append("tail_cut")
         if result["cer"] is not None:
             entry["back_check"] = {"heard": result["heard"], "char_error_rate": result["cer"]}
             if result["cer"] > LOW_INTELLIGIBILITY_CER:

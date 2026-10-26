@@ -127,6 +127,25 @@ def test_invented_speech_detection():
     assert not is_invented_speech(1.2, 1.0, "जे।", hi)                   # short floor of 1.5 s
 
 
+def test_invented_tail_is_cut_at_first_pause():
+    from dubbing.pipeline.speech_job import cut_at_first_pause
+
+    words, gap, babble = _tone(200, 0.5), np.zeros(int(SR * 0.3), np.float32), _tone(300, 2.0)
+    y = np.concatenate([words, gap, babble])
+    cut_y = cut_at_first_pause(y, SR, after_s=0.3)
+    assert cut_y is not None
+    assert 0.5 <= len(cut_y) / SR <= 0.6  # the real words plus a small pad; babble gone
+
+
+def test_no_pause_means_no_cut():
+    from dubbing.pipeline.speech_job import cut_at_first_pause
+
+    assert cut_at_first_pause(_tone(200, 2.0), SR, after_s=0.3) is None
+    # A pause BEFORE the search point (inside the real words) is ignored.
+    y = np.concatenate([_tone(200, 0.2), np.zeros(int(SR * 0.3), np.float32), _tone(200, 1.0)])
+    assert cut_at_first_pause(y, SR, after_s=0.6) is None
+
+
 def test_only_failed_lines_are_redone():
     from dubbing.pipeline.speech_job import _needs_redo
 
