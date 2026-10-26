@@ -1,17 +1,21 @@
 # Names and terms in the Avengers "We're a Time Bomb" clip (job_003).
-# One per line, written exactly as they should appear. Lines starting with # are notes.
-S.H.I.E.L.D.
-Tesseract
-Loki
-Asgard
+# One per line, written exactly as they should appear in English.
+# Optional "= ..." after a term: how to write it in Hindi letters, so the voice can say it.
+# Other Hindi spellings the translator may use go after "|"; they are changed to the first one.
+# Lines starting with # are notes.
+S.H.I.E.L.D. = शील्ड | एस.एच.आई.ई.एल.डी.
+Tesseract = टेसेरैक्ट | टेसरैक्ट | टेसेरेक्ट
+Loki = लोकी
+Asgard = असगार्ड | एसगार्ड
 Earth
-Agent Romanoff
-Romanoff
-Dr. Banner
-Banner
-Stark
-Captain America
-Thor
-Fury
-Calcutta
-M.O.
+Agent Romanoff = एजेंट रोमानॉफ़
+Romanoff = रोमानॉफ़
+Dr. Banner = डॉक्टर बैनर
+Banner = बैनर
+Stark = स्टार्क | स्टारक
+Captain America = कैप्टन अमेरिका
+Rogers = रॉजर्स
+Thor = थॉर
+Fury = फ्यूरी
+Calcutta = कलकत्ता
+M.O. = तरीका

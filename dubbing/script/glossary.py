@@ -14,18 +14,52 @@ from pathlib import Path
 _SPACED_ACRONYM = re.compile(r"\b((?:[A-Z] ?\. ?){1,}[A-Z]\.?)")
 
 
+def _entries(path: Path | None) -> list[tuple[str, str | None]]:
+    """Glossary lines: 'Term' or 'Term = हिंदी वर्तनी' (its spelling in Hindi letters)."""
+    if not path or not path.is_file():
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            term, _, hindi = line.partition("=")
+            out.append((term.strip(), hindi.strip() or None))
+    return out
+
+
 def load_glossary(*paths: Path | None, extra: list[str] | None = None) -> list[str]:
     terms: list[str] = []
     for path in paths:
-        if path and path.is_file():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                line = line.split("#", 1)[0].strip()
-                if line and line not in terms:
-                    terms.append(line)
+        for term, _ in _entries(path):
+            if term and term not in terms:
+                terms.append(term)
     for term in extra or []:
         if term not in terms:
             terms.append(term)
     return terms
+
+
+def load_name_spellings(path: Path | None) -> dict[str, str]:
+    """{English term: spelling in Hindi letters} for terms that have one. A dotted term
+    (S.H.I.E.L.D.) also gets its dotless form (SHIELD), which is what the translator sees."""
+    out: dict[str, str] = {}
+    for term, hindi in _entries(path):
+        if term and hindi:
+            main = hindi.split("|")[0].strip()
+            out[term] = main
+            if "." in term:
+                out.setdefault(term.replace(".", ""), main)
+    return out
+
+
+def load_name_variants(path: Path | None) -> dict[str, str]:
+    """Other Hindi spellings listed after '|' -> the main spelling ('Asgard = असगार्ड | एसगार्ड')."""
+    out: dict[str, str] = {}
+    for _, hindi in _entries(path):
+        if hindi and "|" in hindi:
+            main, *others = [h.strip() for h in hindi.split("|")]
+            out.update({o: main for o in others if o})
+    return out
 
 
 def fix_acronyms(text: str) -> str:
