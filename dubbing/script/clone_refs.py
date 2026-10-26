@@ -85,6 +85,8 @@ def choose_samples(lines: list[dict[str, Any]], events: list[dict[str, Any]], vo
 def write_previews(samples: dict[str, dict[str, Any]], vocals: np.ndarray, sr: int, out_dir: Path) -> None:
     """One WAV per speaker: their chosen samples back to back, to listen and confirm the voice."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("S*.wav"):  # previews from an earlier build (speaker labels may have changed)
+        old.unlink()
     gap = np.zeros(int(0.3 * PREVIEW_SR), dtype=np.float32)
     for spk, info in samples.items():
         parts = []
