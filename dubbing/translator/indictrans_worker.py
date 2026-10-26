@@ -63,9 +63,13 @@ def main(request_path, result_path):
         batch = [f'{req["src"]} {req["tgt"]} {_prepare(t)}' for t in texts[start:start + req.get("batch_size", 8)]]
         inputs = tok(batch, truncation=True, padding="longest", return_tensors="pt")
         with torch.inference_mode():
-            # use_cache=False: the model's own code expects an older cache format. Same output, a bit slower.
-            gen = model.generate(**inputs, use_cache=False, num_beams=beams, num_return_sequences=n,
-                                 max_length=req.get("max_new_tokens", 256))
+            kwargs = dict(num_beams=beams, num_return_sequences=n, max_length=req.get("max_new_tokens", 256))
+            try:
+                # The speed-up ("cache") works with the Transformers version IndicTrans2 was built for...
+                gen = model.generate(**inputs, use_cache=True, **kwargs)
+            except (AttributeError, TypeError):
+                # ...and newer versions changed its format, so fall back: same output, several times slower.
+                gen = model.generate(**inputs, use_cache=False, **kwargs)
         with tok.as_target_tokenizer():
             decoded = tok.batch_decode(gen, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         for k in range(len(batch)):

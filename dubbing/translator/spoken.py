@@ -29,6 +29,7 @@ COLLOQUIAL: dict[str, str] = {
     "सम्भव": "मुमकिन", "संभव": "मुमकिन", "असंभव": "नामुमकिन",
     "मुझे खेद है": "माफ़ करना", "खेद": "अफ़सोस", "यही कारण है कि": "इसीलिए", "यही कारण है": "इसीलिए",
     "याद दिलाएं": "याद दिलाओ", "याद दिलाएँ": "याद दिलाओ", "बताएं": "बताओ", "बताएँ": "बताओ",
+    "नो": "नहीं",
 }
 
 # Words ending in -ता that are not verbs, so must never be made feminine.
@@ -151,10 +152,31 @@ def match_end_punctuation(hindi: str, english: str | None, changes: list[str]) -
     return hindi
 
 
+def remove_runaway_repeats(text: str, max_run: int, changes: list[str]) -> str:
+    """Collapse a word repeated more times in a row than the English had ("नो। नो। नो। ..." x13)."""
+    tokens = text.split()
+    out: list[str] = []
+    run = 0
+    for tok in tokens:
+        same = out and tok.strip(".,!?;:।") == out[-1].strip(".,!?;:।")
+        run = run + 1 if same else 1
+        if run <= max_run:
+            out.append(tok)
+    if len(out) < len(tokens):
+        changes.append(f"removed {len(tokens) - len(out)} repeated words")
+        text = " ".join(out)
+    return text
+
+
 def make_spoken(text: str, speaker_gender: str | None, register: str = "tum",
                 names: dict[str, str] | None = None, english: str | None = None,
-                variants: dict[str, str] | None = None) -> SpokenResult:
+                variants: dict[str, str] | None = None, max_repeat: int | None = None) -> SpokenResult:
     changes: list[str] = []
+    if max_repeat is not None:
+        text = remove_runaway_repeats(text, max_repeat, changes)
+    if "डॉ." in text:  # the abbreviation would otherwise become "डॉ।"; it is said in full anyway
+        text = re.sub(r"डॉ\.\s*", "डॉक्टर ", text)
+        changes.append("abbreviation: डॉ. → डॉक्टर")
     out = apply_names(text, names or {}, changes)
     out = apply_variants(out, variants or {}, changes)
     out = _replace_words(out, COLLOQUIAL, "everyday word", changes)

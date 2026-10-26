@@ -69,6 +69,13 @@ def test_fixes_found_in_the_second_comparison():
     assert make_spoken("एसगार्ड से", "male", variants={"एसगार्ड": "असगार्ड"}).text == "असगार्ड से"
 
 
+def test_runaway_repeats_and_abbreviation_dots():
+    r = make_spoken("नो। " * 13, "male", english="No, no, no.", max_repeat=3)
+    assert r.text == "नहीं। नहीं। नहीं।"
+    assert make_spoken("ओह, हाँ, हाँ, हाँ, हाँ यार", "male", max_repeat=1).text == "ओह, हाँ, यार"
+    assert make_spoken("क्या तुम डॉ. बैनर को ले जाओगे?", "male").text == "क्या तुम डॉक्टर बैनर को ले जाओगे?"
+
+
 def test_dotted_names_are_protected_before_translating():
     from dubbing.translator.spoken import protect_names
 

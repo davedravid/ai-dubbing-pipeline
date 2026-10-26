@@ -4,12 +4,12 @@
 # Other Hindi spellings the translator may use go after "|"; they are changed to the first one.
 # Lines starting with # are notes.
 S.H.I.E.L.D. = शील्ड | एस.एच.आई.ई.एल.डी.
-Tesseract = टेसेरैक्ट | टेसरैक्ट | टेसेरेक्ट
+Tesseract = टेसेरैक्ट | टेसरैक्ट | टेसेरेक्ट | टेसराक्ट
 Loki = लोकी
 Asgard = असगार्ड | एसगार्ड
 Earth
 Agent Romanoff = एजेंट रोमानॉफ़
-Romanoff = रोमानॉफ़
+Romanoff = रोमानॉफ़ | रोमनॉफ | रोमानॉफ | रोमनॉफ़
 Dr. Banner = डॉक्टर बैनर
 Banner = बैनर
 Stark = स्टार्क | स्टारक

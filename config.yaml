@@ -64,6 +64,13 @@ script:
   detect_overlaps: true
 
 translation:
+  # Which translator writes the Hindi: 'indictrans2' (AI4Bharat, MIT licence, more natural
+  # Hindi; chosen 2026-10-26 after a side-by-side test) or 'nllb'. NLLB is always used to
+  # translate options back to English, to check their meaning.
+  engine: indictrans2
+  indictrans_model: ai4bharat/indictrans2-en-indic-dist-200M
+  # 'tum' = familiar (friends, arguments) or 'aap' = respectful (formal scenes).
+  register: tum
   model: facebook/nllb-200-distilled-600M
   # Texts translated together; lower it if the computer runs out of memory.
   batch_size: 8

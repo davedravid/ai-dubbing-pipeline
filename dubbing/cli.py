@@ -113,11 +113,19 @@ def main(argv: list[str] | None = None) -> int:
             out = run_script(args.job_id, settings, overwrite=args.overwrite)
             print(f"\nDone. Dubbing script: {out}\nReview page: {JobPaths(settings.data_dir, args.job_id).script_review}")
         elif args.command == "translate":
-            from dubbing.pipeline.translate_job import run_translation
-
-            setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
+            paths = JobPaths(settings.data_dir, validate_job_id(args.job_id))
+            setup_logging(paths.log_file, verbose=args.verbose)
             targets = [c.strip() for c in args.to.split(",") if c.strip()] if args.to else None
-            outs = run_translation(args.job_id, settings, targets, overwrite=args.overwrite)
+            if paths.script.is_file():
+                # Phase B: translate the approved dubbing script
+                from dubbing.pipeline.translate_script_job import run_translate_script
+
+                outs = [run_translate_script(args.job_id, settings, lang, overwrite=args.overwrite)
+                        for lang in (targets or settings.target_languages)]
+            else:
+                from dubbing.pipeline.translate_job import run_translation
+
+                outs = run_translation(args.job_id, settings, targets, overwrite=args.overwrite)
             print("\nDone. Translations:\n" + "\n".join(f"  {p}" for p in outs))
         elif args.command == "analyze":
             from dubbing.pipeline.analyze_job import run_analysis
