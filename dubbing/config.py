@@ -159,12 +159,12 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
         num_beams=int(tr_raw.get("num_beams", 4)),
         max_new_tokens=int(tr_raw.get("max_new_tokens", 256)),
         alternatives=int(tr_raw.get("alternatives", 5)),
-        engine=tr_raw.get("engine", "auto"),
+        engine=tr_raw.get("engine", "indictrans2"),
         indictrans_model=tr_raw.get("indictrans_model", "ai4bharat/indictrans2-en-indic-dist-200M"),
         register=tr_raw.get("register", "tum"),
     )
-    if translation.engine not in ("auto", "indictrans2", "nllb"):
-        raise ConfigError("translation.engine must be 'auto', 'indictrans2' or 'nllb'")
+    if translation.engine not in ("indictrans2", "nllb"):
+        raise ConfigError("translation.engine must be 'indictrans2' or 'nllb'")
     if translation.register not in ("tum", "aap"):
         raise ConfigError("translation.register must be 'tum' (familiar) or 'aap' (respectful)")
     if translation.batch_size < 1 or translation.num_beams < 1:

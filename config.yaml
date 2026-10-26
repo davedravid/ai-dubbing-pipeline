@@ -72,11 +72,10 @@ context:
   default_register: familiar
 
 translation:
-  # Which translator writes the target language:
-  #   'auto' = IndicTrans2 for Indian languages (more natural Hindi; chosen 2026-10-26 after a
-  #            side-by-side test) and NLLB for everything else (e.g. Spanish),
-  #   'indictrans2' or 'nllb' to force one. NLLB always translates options back to check meaning.
-  engine: auto
+  # Which translator writes the Hindi: 'indictrans2' (AI4Bharat, MIT licence, more natural
+  # Hindi; chosen 2026-10-26 after a side-by-side test) or 'nllb'. NLLB is always used to
+  # translate options back to English, to check their meaning.
+  engine: indictrans2
   indictrans_model: ai4bharat/indictrans2-en-indic-dist-200M
   # 'tum' = familiar (friends, arguments) or 'aap' = respectful (formal scenes).
   register: tum

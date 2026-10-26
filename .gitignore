@@ -15,3 +15,6 @@ __pycache__/
 # Virtual environments, in case one is ever created inside the project
 .venv/
 venv/
+
+# Suggested English corrections quote lines of dialogue: keep them on this PC only
+context/*_corrections.yaml

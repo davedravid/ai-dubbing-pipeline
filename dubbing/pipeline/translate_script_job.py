@@ -37,22 +37,10 @@ LOW_MEANING = 50.0             # back-translation this far from the English: che
 QUALITY_FLAGS = {"wrong_script", "repetition", "unchanged", "empty_translation", "unusual_length"}
 
 
-INDIC_SCRIPTS = {"Devanagari", "Bengali", "Oriya", "Tamil", "Telugu"}
-
-
-def engine_for(settings: Settings, target) -> str:
-    """'auto': IndicTrans2 for Indian languages (more natural), NLLB for everything else."""
-    engine = settings.translation.engine
-    if engine == "auto":
-        return "indictrans2" if target.script in INDIC_SCRIPTS else "nllb"
-    if engine == "indictrans2" and target.script not in INDIC_SCRIPTS:
-        raise PipelineError(f"IndicTrans2 only translates into Indian languages, not {target.name}. "
-                            "Set translation.engine to 'auto' or 'nllb'.")
-    return engine
-
-
 def _translator(settings: Settings, target):
-    engine = engine_for(settings, target)
+    if target.code != "hi":
+        raise PipelineError(f"This version of the pipeline dubs into Hindi only (asked for {target.name}).")
+    engine = settings.translation.engine
     if engine == "indictrans2":
         from dubbing.translator.indictrans import IndicTransTranslator
 
@@ -121,12 +109,11 @@ def run_translate_script(job_id: str, settings: Settings, lang: str = "hi", over
 
     out_units = []
     for u, options in zip(units, candidates):
-        chosen, scored = choose(options, u["text"], backs, u["available_s"], target.chars_per_second, u["pace"],
-                                penalize_latin=target.script != "Latin")
+        chosen, scored = choose(options, u["text"], backs, u["available_s"], target.chars_per_second, u["pace"])
         # If every option ran away (e.g. a word repeated 13 times), trim the repeats to the English's count.
         max_repeat = max(1, _longest_run(u["text"])) if chosen.get("runaway") else None
         spoken = make_spoken(chosen["text"], u["gender"], register, names, english=u["text"], variants=variants,
-                             max_repeat=max_repeat, lang=target.code)
+                             max_repeat=max_repeat)
         flags, _ = check_translation(u["text"], spoken.text, source, target, u["end"] - u["start"],
                                      u["available_s"], 14.0 * u["pace"])
         flags = [f for f in flags if f in QUALITY_FLAGS]
