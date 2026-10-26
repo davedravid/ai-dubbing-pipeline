@@ -89,7 +89,9 @@ tts:
   # 'clone' = copy the voice and delivery of each original line.
   # 'standard' = use one of XTTS's built-in voices for every line.
   voice_mode: clone
+  # Built-in voices for speakers with no clean sample to clone, by gender.
   standard_speaker: Damien Black
+  standard_speaker_female: Ana Florence
   # A line shorter than this cannot be cloned from itself; it borrows the
   # nearest longer line within max_borrow_distance_s (the speaker may differ!).
   min_reference_s: 3.0

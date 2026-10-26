@@ -67,6 +67,7 @@ class TtsSettings:
     model: str
     voice_mode: str
     standard_speaker: str
+    standard_speaker_female: str
     min_reference_s: float
     max_borrow_distance_s: float
     max_speed: float
@@ -167,6 +168,7 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
         model=t.get("model", "tts_models/multilingual/multi-dataset/xtts_v2"),
         voice_mode=t.get("voice_mode", "clone"),
         standard_speaker=t.get("standard_speaker", "Damien Black"),
+        standard_speaker_female=t.get("standard_speaker_female", "Ana Florence"),
         min_reference_s=float(t.get("min_reference_s", 3.0)),
         max_borrow_distance_s=float(t.get("max_borrow_distance_s", 10.0)),
         max_speed=float(t.get("max_speed", 1.3)),

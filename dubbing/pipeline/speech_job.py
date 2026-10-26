@@ -162,6 +162,40 @@ def _generate_line(
 
 
 MAX_SHORTER_TRIES = 2  # shorter wordings tried for a line that does not fit
+SHORTER_MIN = 0.95     # a shorter wording must be at least 5% shorter...
+KEEP_MEANING = 0.80    # ...and keep 80% of the chosen wording's meaning score
+
+
+def shorter_spoken_options(unit: dict[str, Any], translation: dict[str, Any], rules: dict[str, Any]) -> list[dict]:
+    """Shorter wordings from the translation's options (Phase B), made spoken-Hindi with the
+    same rules as the main wording (speaker gender, तुम/आप, names), best meaning first."""
+    from dubbing.translator.spoken import make_spoken
+
+    main_len = len(unit.get("text", ""))
+    floor = max(35.0, KEEP_MEANING * float(unit.get("meaning_score") or 0))
+    out = []
+    for o in unit.get("options") or []:
+        if o["text"] == unit.get("translator_text") or o.get("runaway") or o.get("latin_words") or o["meaning"] < floor:
+            continue
+        spoken = make_spoken(o["text"], unit.get("speaker_gender"), translation.get("register", "tum"),
+                             rules["names"], english=unit.get("source_text"), variants=rules["variants"]).text
+        if len(spoken) <= main_len * SHORTER_MIN:
+            out.append({"text": spoken, "meaning": o["meaning"]})
+    return sorted(out, key=lambda o: -o["meaning"])
+
+
+def speaker_references_from_script(script: dict[str, Any], y: np.ndarray, sr: int,
+                                   out_dir: Path) -> dict[str, dict[str, Any]]:
+    """Each speaker's clean voice samples, exactly as chosen (and reviewable) in Phase A."""
+    refs: dict[str, dict[str, Any]] = {}
+    for spk, info in (script.get("clone_samples") or {}).items():
+        clips = []
+        for c in info.get("samples", []):
+            piece = {"id": c["line_id"], "start": c["start"], "end": c["end"]}
+            path, quality = cut_reference(y, sr, piece, out_dir / f"speaker_{spk}_line_{c['line_id']:03d}.wav")
+            clips.append({"line_id": c["line_id"], "path": str(path), **quality})
+        refs[spk] = {"seconds": info.get("clean_seconds", 0.0), "grade": info.get("grade"), "clips": clips}
+    return refs
 
 
 def _better(a: dict[str, Any], b: dict[str, Any]) -> bool:
@@ -230,6 +264,9 @@ def run_speech(
     redo_ids = {u["id"] for u in selected}
     _, transcript = load_transcript(paths, job_id)
     total_s = float(transcript["source"]["duration_s"])
+    # The approved dubbing script (Phase A), when there is one: it holds each speaker's
+    # chosen clean voice samples and gender.
+    script = json.loads(paths.script.read_text(encoding="utf-8")) if paths.script.is_file() else None
 
     timings: dict[str, float] = {}
     started = time.perf_counter()
@@ -257,7 +294,10 @@ def run_speech(
         for ref_id in sorted(needed - {None}):
             path, quality = cut_reference(ref_y, ref_sr, units[ref_id], paths.references_dir / f"unit_{ref_id:03d}.wav")
             references[ref_id] = {"path": str(path), **quality}
-        speaker_refs = build_speaker_references(units, ref_y, ref_sr, paths.references_dir)
+        if script:
+            speaker_refs = speaker_references_from_script(script, ref_y, ref_sr, paths.references_dir)
+        else:
+            speaker_refs = build_speaker_references(units, ref_y, ref_sr, paths.references_dir)
     timings["references_s"] = round(time.perf_counter() - started, 2)
 
     started = time.perf_counter()
@@ -265,6 +305,7 @@ def run_speech(
     checker = _BackChecker(settings) if settings.tts.verify_with_asr else None
     timings["model_load_s"] = round(time.perf_counter() - started, 2)
     standard = synth.builtin_voice(settings.tts.standard_speaker)
+    standard_female = synth.builtin_voice(settings.tts.standard_speaker_female)
     voices: dict[int, Voice] = {}
     speaker_voices = {spk: synth.voice_from_audio([Path(c["path"]) for c in r["clips"]], f"speaker {spk}")
                       for spk, r in speaker_refs.items() if r["clips"]}
@@ -273,9 +314,26 @@ def run_speech(
     def line_voice(unit: dict[str, Any], flags: list[str]) -> tuple[Voice, dict[str, Any] | None]:
         """Pick the voice for one line. Returns (voice, reference details)."""
         if mode != "clone":
-            return standard, None
+            return (standard_female if unit.get("speaker_gender") == "female" else standard), None
         spk = unit.get("speaker")
         long_enough = unit["end"] - unit["start"] >= settings.tts.min_reference_s
+        if script:
+            # Script mode: every line has a speaker label; use that person's voice.
+            if spk in speaker_voices:
+                timbre = speaker_voices[spk]
+                if unit.get("speaker_uncertain", True):
+                    flags.append("speaker_uncertain")
+                elif long_enough and unit["id"] in references:
+                    # Same person's voice, with the delivery (emotion) of this exact line.
+                    if unit["id"] not in voices:
+                        voices[unit["id"]] = synth.voice_from_audio([Path(references[unit["id"]]["path"])], "line")
+                    return (synth.combine(voices[unit["id"]], timbre, f"speaker {spk}, delivery of this line"),
+                            {"speaker": spk, "delivery_from_unit": unit["id"]})
+                return timbre, {"speaker": spk, "delivery_from_unit": None}
+            # This speaker had no clean sample to clone: a built-in voice of the right gender.
+            flags.append("no_clean_voice_sample")
+            gender_voice = standard_female if unit.get("speaker_gender") == "female" else standard
+            return gender_voice, {"speaker": spk, "builtin_by_gender": unit.get("speaker_gender")}
         if spk in speaker_voices and not unit.get("speaker_uncertain", True):
             timbre = speaker_voices[spk]
             if long_enough:
@@ -302,13 +360,16 @@ def run_speech(
 
     def backup_voice(voice: Voice) -> Voice:
         """For clarity fallback: the built-in voice closest to the line's voice, not one fixed voice."""
-        if voice is standard:
-            return standard
+        if voice is standard or voice is standard_female:
+            return voice
         key = voice.description
         if key not in closest_builtin:
             closest_builtin[key] = synth.closest_builtin_voice(voice)
         return closest_builtin[key]
 
+    from dubbing.script.glossary import load_name_spellings, load_name_variants
+
+    spoken_rules = {"names": load_name_spellings(paths.glossary), "variants": load_name_variants(paths.glossary)}
     out_dir = paths.tts_dir(target.code)
     out_units: list[dict[str, Any]] = []
     started = time.perf_counter()
@@ -320,6 +381,8 @@ def run_speech(
         done += 1
         entry: dict[str, Any] = {k: unit[k] for k in ("id", "source_segment_ids", "start", "end", "text")}
         entry["available_s"] = unit["available_s"]
+        entry["source_text"] = unit.get("source_text")
+        entry["speaker_gender"] = unit.get("speaker_gender")
         flags: list[str] = []
         if not unit["text"].strip():
             entry.update(status="skipped_no_text", flags=["no_text"])
@@ -333,8 +396,8 @@ def run_speech(
         fits_within = available * settings.mix.max_tighten  # the mix can still tighten by this much
 
         # Main wording first; if it cannot fit its slot, try shorter wordings that keep the meaning.
-        wordings = [("main", unit["text"])] + [
-            ("shorter", o["text"]) for o in unit.get("shorter_alternatives", [])[:MAX_SHORTER_TRIES]]
+        shorter = unit.get("shorter_alternatives") or shorter_spoken_options(unit, translation, spoken_rules)
+        wordings = [("main", unit["text"])] + [("shorter", o["text"]) for o in shorter[:MAX_SHORTER_TRIES]]
         result, chosen, spoken_text = None, None, None
         for kind, text in wordings:
             spoken = normalize_for_speech(text, target.code)
@@ -444,5 +507,10 @@ def run_speech(
         "units": out_units,
     }
     write_json(manifest_path, manifest)
-    log.info("Saved speech manifest: %s (%d lines). Preview: %s", manifest_path, len(generated), preview)
+    from dubbing.tts.review import write_speech_review
+
+    review = write_speech_review(manifest, paths.tts_root / f"{job_id}_{target.code}_review.html",
+                                 Path(transcript["source"]["path"]))
+    log.info("Saved speech manifest: %s (%d lines). Preview: %s | review page: %s",
+             manifest_path, len(generated), preview, review)
     return manifest_path

@@ -203,6 +203,34 @@ def test_clear_and_fitting_take_wins():
     assert _better(long_clear, short_unclear)  # clarity beats fitting
 
 
+# ---- Phase C: wordings and voices from the approved script / translation ---------
+
+def test_shorter_options_get_the_spoken_rules():
+    from dubbing.pipeline.speech_job import shorter_spoken_options
+
+    unit = {"text": "मैं उस समय वहाँ पर बिलकुल अकेली ही थी।", "translator_text": "मैं उस समय वहाँ पर बिलकुल अकेला ही था।",
+            "meaning_score": 80, "speaker_gender": "female", "source_text": "I was alone there.",
+            "options": [{"text": "मैं उस समय वहाँ पर बिलकुल अकेला ही था।", "meaning": 80, "latin_words": 0},
+                        {"text": "मैं वहाँ था।", "meaning": 70, "latin_words": 0},             # shorter, ok
+                        {"text": "मैं there था।", "meaning": 90, "latin_words": 1},           # English left
+                        {"text": "वहाँ।", "meaning": 20, "latin_words": 0}]}                  # meaning lost
+    out = shorter_spoken_options(unit, {"register": "tum"}, {"names": {}, "variants": {}})
+    assert [o["text"] for o in out] == ["मैं वहाँ थी।"]  # made feminine, like the main wording
+
+
+def test_speaker_references_come_from_the_script(tmp_path: Path):
+    from dubbing.pipeline.speech_job import speaker_references_from_script
+
+    sr = 24000
+    y = _tone(10.0, sr=sr)
+    script = {"clone_samples": {"S1": {"clean_seconds": 3.0, "grade": "weak",
+                                       "samples": [{"line_id": 4, "start": 1.0, "end": 4.0}]},
+                                "S2": {"clean_seconds": 0.0, "grade": "weak", "samples": []}}}
+    refs = speaker_references_from_script(script, y, sr, tmp_path)
+    assert [c["line_id"] for c in refs["S1"]["clips"]] == [4] and refs["S2"]["clips"] == []
+    assert Path(refs["S1"]["clips"][0]["path"]).is_file()
+
+
 # ---- per-speaker voice samples -------------------------------------------------
 
 def test_speaker_references_use_only_confident_long_lines(tmp_path: Path):
