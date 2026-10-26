@@ -15,5 +15,10 @@ speakers:
     name: null
     gender: null
     same_as: null
+  S4:   # added by you: a fourth person (only line 5)
+    name: null
+    gender: male
+    same_as: null
 lines:
-  # 3: S1
+  3: S1   # "We're." is Banner (start of "we're a time bomb")
+  5: S4   # "You need to step away." is a fourth person
