@@ -35,9 +35,9 @@ def _find_transcript(paths: JobPaths, job_id: str) -> Path:
     return found[0]
 
 
-MIN_MEANING_SCORE = 40.0        # chrF of the back-translation against the original sentence
-KEEP_MEANING_SHARE = 0.85       # an alternative must keep this share of the main wording's score
-MIN_SHORTER = 0.92              # ...and be at least 8% shorter than the main wording
+MIN_MEANING_SCORE = 35.0        # chrF of the back-translation against the original sentence
+KEEP_MEANING_SHARE = 0.80       # an alternative must keep this share of the main wording's score
+MIN_SHORTER = 0.95              # ...and be at least 5% shorter than the main wording
 BAD_FLAGS = {"empty_translation", "wrong_script", "repetition", "unchanged"}
 
 

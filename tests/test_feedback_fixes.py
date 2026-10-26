@@ -49,6 +49,88 @@ def test_sentences_never_join_two_speakers():
     assert [u["speaker"] for u in units] == ["S1", "S2"]
 
 
+def test_results_with_numpy_values_can_be_saved(tmp_path: Path):
+    import json
+
+    from dubbing.pipeline.transcribe_job import write_json
+
+    write_json(tmp_path / "x.json", {"flag": np.bool_(True), "n": np.float64(1.5), "a": np.arange(3)})
+    assert json.loads((tmp_path / "x.json").read_text(encoding="utf-8")) == {"flag": True, "n": 1.5, "a": [0, 1, 2]}
+
+
+# ---- recovering skipped speech ------------------------------------------------
+
+class _StandInWhisper:
+    """Test double for faster-whisper: 'hears' a fixed line in any clip it is given."""
+
+    class _Word:
+        def __init__(self, word, start, end, probability=0.9):
+            self.word, self.start, self.end, self.probability = word, start, end, probability
+
+    class _Seg:
+        def __init__(self, words):
+            self.words, self.avg_logprob, self.no_speech_prob = words, -0.2, 0.1
+
+    def __init__(self, text):
+        self.text, self.calls = text, 0
+
+    def transcribe(self, clip, **kwargs):
+        self.calls += 1
+        if not self.text:
+            return iter([]), None
+        words = [self._Word(w, 0.35 + i * 0.3, 0.6 + i * 0.3) for i, w in enumerate(self.text.split())]
+        return iter([self._Seg(words)]), None
+
+
+def test_skipped_speech_is_recovered_with_shifted_timings():
+    from dubbing.asr.gapfill import fill_gaps
+
+    y = np.concatenate([_tone(1.0), _tone(1.0), np.zeros(SR, np.float32), _tone(1.0)])  # voice 0-2 s and 3-4 s
+    segs = [{"id": 0, "start": 3.0, "end": 4.0, "text": "later",
+             "words": [{"word": "later", "start": 3.0, "end": 4.0}]}]
+    merged, report = fill_gaps(_StandInWhisper("Good morning"), y, None, segs, "en")
+    assert [s["text"] for s in merged] == ["Good morning", "later"]
+    assert merged[0]["recovered"] and merged[0]["start"] == pytest.approx(0.35, abs=0.05)
+    assert [s["id"] for s in merged] == [0, 1]
+    assert report[0]["source"] == "vocals"
+
+
+def test_laugh_in_a_gap_is_not_added_as_a_line():
+    from dubbing.asr.gapfill import fill_gaps
+
+    y = _tone(2.0)
+    merged, report = fill_gaps(_StandInWhisper("Ha ha"), y, None, [], "en")
+    assert merged == [] and report[0]["recovered"] == []
+
+
+# ---- splitting long transcript segments ----------------------------------------
+
+def _w(word, start, end):
+    return {"word": word, "start": start, "end": end}
+
+
+def test_long_segment_split_at_sentence_ends_and_pauses():
+    from dubbing.asr.resegment import split_segments
+
+    seg = {"id": 0, "start": 0.0, "end": 6.0, "text": "...", "avg_logprob": -0.2, "words": [
+        _w("Hello.", 0.0, 0.5), _w("How", 0.6, 0.8), _w("are", 0.8, 1.0), _w("you", 1.0, 1.2),
+        _w("today", 2.5, 3.0), _w("sir?", 3.0, 3.4)]}
+    out = split_segments([seg], max_s=10, pause_s=0.6)
+    assert [s["text"] for s in out] == ["Hello.", "How are you", "today sir?"]
+    assert [s["id"] for s in out] == [0, 1, 2]
+    assert out[1]["start"] == 0.6 and out[1]["end"] == 1.2 and out[1]["avg_logprob"] == -0.2
+    assert sum(len(s["words"]) for s in out) == 6  # no word lost
+
+
+def test_over_long_sentence_is_cut_at_a_comma():
+    from dubbing.asr.resegment import split_segments
+
+    words = [_w(f"w{i}" + ("," if i == 7 else ""), i * 1.0, i * 1.0 + 0.9) for i in range(14)]
+    out = split_segments([{"id": 0, "start": 0, "end": 14, "text": "", "words": words}], max_s=10, pause_s=0.6)
+    assert len(out) == 2 and out[0]["text"].endswith("w7,")
+    assert all(s["end"] - s["start"] <= 10 for s in out)
+
+
 # ---- meaning check of shorter wordings ----------------------------------------
 
 def test_chrf_scores_similar_sentences_higher():

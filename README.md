@@ -9,7 +9,8 @@ Current focus: **English → Hindi**.
 |---|---|---|
 | 2 | Video → audio extraction → timestamped transcript (JSON) | **Verified 2026-10-25**: 16 unit tests + 4 integration tests pass on a 4-min English clip (84 segments, English detected, about 1× real time on CPU) |
 | 3 | English → Hindi translation (NLLB-200 600M) with completeness checks and timing budget | **Verified 2026-10-25**: job_001's 84 segments → 69 sentence units, all translated, 100% Devanagari, 12 flagged for review; 47 unit + 2 model tests pass. Translation *quality* not yet reviewed by a native speaker |
-| 5 | Voice/music separation (Demucs), timing fixes, loudness matching, dubbed MP4 with switchable audio and subtitles | **Built and checked 2026-10-26**: job_001_hi.mp4 passes all 7 checks (plays, picture bit-identical, sound length within 0.005 s, loudness within 0.02 LU, no distortion, all 69 lines, all 161 captions); 0 words of original dialogue leaked into the background. **Open issue: 39 lines still overlap the next line (about 48 s in total) because the Hindi is too long; needs shorter translations.** Not yet watched by a person |
+| 5 | Voice/music separation (Demucs), timing fixes, loudness matching, dubbed MP4 with switchable audio and subtitles | **Built and checked 2026-10-26**: job_001_hi.mp4 passes all 7 checks (plays, picture bit-identical, sound length within 0.005 s, loudness within 0.02 LU, no distortion, all 69 lines, all 161 captions); 0 words of original dialogue leaked into the background. First viewing found overlaps, missing laughs, early starts, missed speech, changing voices and a too-strong default voice. |
+| 5b | Fixes from that viewing: transcription from separated voices + gap recovery, sentence splitting, pyannote speakers (one voice per person, each line's own delivery), shorter wordings checked by back-translation, laughs kept, lines start at the actor's voice, loudness cap 30 dB, closest built-in backup voice | **Run as job_002, 2026-10-26**: overlaps 39 → 8 lines (47.8 s → 6.7 s); early starts 11 → 0; 21 laughs/sounds kept; 24/33 lines in their speaker's voice; built-in voice 26 → 8 lines. **Worse:** 5 lines fail the clarity check (job_001: 2). **Open:** 3 very short lines (≤0.55 s) still not dubbed (gap recovery ignores stretches under 0.5 s). Not yet watched by a person |
 | 4 | Delivery measurements + Hindi speech with XTTS v2 voice cloning, back-check, retries, invented-speech cut | **Verified 2026-10-26**: all 69 job_001 lines generated; median back-check error 12.5%; 0 lines with invented speech; 2 one-word lines still flagged (units 21 "जे।" and 61 "ठीक है।"; Whisper is unreliable on clips under 1 s, so these need a listen). Voices: 13 cloned from their own line, 30 from a nearby line, 26 built-in. 44 lines longer than their slot (Phase 5). 73 fast + 2 speech-model tests pass. **Not yet reviewed by ear** |
 | 5 | Mixing, video output, subtitles | Not started |
 | 6 | Multiple speakers | Not started |
@@ -177,6 +178,16 @@ What `mix` does:
    identical to the original, sound the same length as the picture, loudness within 1 LU of the
    original, no distortion, every line present, all subtitle captions present. It also lists the
    times worth a listen.
+
+### Speaker detection setup (one time)
+
+Needs a free Hugging Face account. Accept the terms on **all three** pages (same account):
+https://huggingface.co/pyannote/speaker-diarization-3.1,
+https://huggingface.co/pyannote/segmentation-3.0 and
+https://huggingface.co/pyannote/speaker-diarization-community-1 (pyannote 4 fetches one file
+from it). Create a "Read" token at https://huggingface.co/settings/tokens and save it with
+`setx HF_TOKEN "hf_..."` (never put it in code or config). pyannote's usage statistics are
+switched off by the pipeline.
 
 ## Where files go
 

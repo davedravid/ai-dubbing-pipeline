@@ -30,6 +30,14 @@ asr:
   # Separate voices from music first (Demucs) and transcribe the voices alone.
   # Music under dialogue made Whisper miss whole lines.
   from_separated_vocals: true
+  # Whisper returns long segments on clean voices; cut them into sentences using word
+  # timings: after . ? !, at pauses longer than split_pause_s, and anything over max_segment_s.
+  split_long_segments: true
+  max_segment_s: 10.0
+  split_pause_s: 0.6
+  # Listen again to stretches where a voice is audible but nothing was transcribed
+  # (Whisper skipped the opening greetings once). Recovered lines are marked "recovered".
+  fill_gaps: true
 
 diarization:
   # Find who speaks when (pyannote). Needs the HF_TOKEN setting and the model's terms

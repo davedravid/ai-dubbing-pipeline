@@ -23,6 +23,10 @@ class AsrSettings:
     vad_filter: bool
     word_timestamps: bool
     from_separated_vocals: bool
+    split_long_segments: bool
+    max_segment_s: float
+    split_pause_s: float
+    fill_gaps: bool
 
 
 @dataclass(frozen=True)
@@ -190,6 +194,10 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
             vad_filter=bool(asr_raw.get("vad_filter", True)),
             word_timestamps=bool(asr_raw.get("word_timestamps", True)),
             from_separated_vocals=bool(asr_raw.get("from_separated_vocals", True)),
+            split_long_segments=bool(asr_raw.get("split_long_segments", True)),
+            max_segment_s=float(asr_raw.get("max_segment_s", 10.0)),
+            split_pause_s=float(asr_raw.get("split_pause_s", 0.6)),
+            fill_gaps=bool(asr_raw.get("fill_gaps", True)),
         ),
         diarization=DiarizationSettings(
             enabled=bool(d.get("enabled", True)),

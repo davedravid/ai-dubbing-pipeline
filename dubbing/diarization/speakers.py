@@ -20,6 +20,10 @@ from dubbing.errors import PipelineError
 log = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "pyannote/speaker-diarization-3.1"
+# Gated pages whose terms must be accepted. pyannote.audio 4 also fetches one file
+# from the community-1 page even when running the 3.1 pipeline.
+REQUIRED_REPOS = ("pyannote/speaker-diarization-3.1", "pyannote/segmentation-3.0",
+                  "pyannote/speaker-diarization-community-1")
 
 
 def diarize(y: np.ndarray, sr: int, model: str = DEFAULT_MODEL, device: str = "cpu",
@@ -30,8 +34,9 @@ def diarize(y: np.ndarray, sr: int, model: str = DEFAULT_MODEL, device: str = "c
     if not token:
         raise PipelineError(
             "Speaker detection needs a Hugging Face access token in the HF_TOKEN setting.\n"
-            "Create one at https://huggingface.co/settings/tokens, accept the terms of "
-            f"https://huggingface.co/{model}, then run:  setx HF_TOKEN \"hf_...\"  and open a new terminal."
+            "Create one at https://huggingface.co/settings/tokens, accept the terms on "
+            + ", ".join(f"https://huggingface.co/{r}" for r in REQUIRED_REPOS)
+            + ", then run:  setx HF_TOKEN \"hf_...\"  and open a new terminal."
         )
     import torch
     from pyannote.audio import Pipeline
@@ -42,8 +47,8 @@ def diarize(y: np.ndarray, sr: int, model: str = DEFAULT_MODEL, device: str = "c
     except Exception as exc:
         raise PipelineError(
             f"Could not load '{model}': {exc}\n"
-            f"Check that you accepted the terms at https://huggingface.co/{model} "
-            "and https://huggingface.co/pyannote/segmentation-3.0 with the same account as the token."
+            "Check that you accepted the terms on ALL of these pages with the same account as the token:\n"
+            + "\n".join(f"  https://huggingface.co/{repo}" for repo in REQUIRED_REPOS)
         ) from exc
     if pipeline is None:
         raise PipelineError(f"Access to '{model}' was refused; accept its terms on Hugging Face first.")
@@ -55,7 +60,7 @@ def diarize(y: np.ndarray, sr: int, model: str = DEFAULT_MODEL, device: str = "c
     log.info("Detecting speakers with %s on %s (%.0fs of audio)...", model, device, len(y) / sr)
     output = pipeline({"waveform": waveform, "sample_rate": sr}, **kwargs)
     annotation = getattr(output, "speaker_diarization", output)
-    turns = [{"start": round(t.start, 3), "end": round(t.end, 3), "speaker": str(label)}
+    turns = [{"start": round(float(t.start), 3), "end": round(float(t.end), 3), "speaker": str(label)}
              for t, _, label in annotation.itertracks(yield_label=True)]
     log.info("Found %d speakers in %d turns (%.1fs)", len({t["speaker"] for t in turns}), len(turns),
              time.perf_counter() - started)
@@ -88,7 +93,7 @@ def label_segments(segments: list[dict[str, Any]], turns: list[dict[str, Any]],
             out.append({**seg, "speaker": None, "speaker_confidence": 0.0, "speaker_uncertain": True})
             continue
         best = max(time_by, key=time_by.get)
-        conf = round(time_by[best] / total, 3)
+        conf = round(float(time_by[best] / total), 3)
         out.append({**seg, "speaker": names[best], "speaker_confidence": conf,
-                    "speaker_uncertain": conf < min_confidence})
+                    "speaker_uncertain": bool(conf < min_confidence)})
     return out
