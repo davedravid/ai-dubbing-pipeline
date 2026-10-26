@@ -138,12 +138,12 @@ def apply_variants(text: str, variants: dict[str, str], changes: list[str]) -> s
     return _replace_words(text, variants, "name spelling", changes) if variants else text
 
 
-def match_end_punctuation(hindi: str, english: str | None, changes: list[str]) -> str:
+def match_end_punctuation(hindi: str, english: str | None, changes: list[str], full_stop: str = "।") -> str:
     """A question stays a question (the voice needs the '?' to sound like one)."""
     if not english:
         return hindi
     end = english.rstrip()[-1:] if english.strip() else ""
-    want = {"?": "?", "!": "!", ".": "।"}.get(end)
+    want = {"?": "?", "!": "!", ".": full_stop}.get(end)
     stripped = hindi.rstrip(" ।.?!,")
     have = hindi.rstrip()[-1:] if hindi.strip() else ""
     if want and have != want:
@@ -170,10 +170,16 @@ def remove_runaway_repeats(text: str, max_run: int, changes: list[str]) -> str:
 
 def make_spoken(text: str, speaker_gender: str | None, register: str = "tum",
                 names: dict[str, str] | None = None, english: str | None = None,
-                variants: dict[str, str] | None = None, max_repeat: int | None = None) -> SpokenResult:
+                variants: dict[str, str] | None = None, max_repeat: int | None = None,
+                lang: str = "hi") -> SpokenResult:
     changes: list[str] = []
     if max_repeat is not None:
         text = remove_runaway_repeats(text, max_repeat, changes)
+    if lang != "hi":
+        # The word lists, verb-gender and तुम rules are Hindi-only; other languages keep only
+        # the language-neutral steps (runaway repeats above, matching end punctuation).
+        out = " ".join(text.split())
+        return SpokenResult(match_end_punctuation(out, english, changes, full_stop="."), changes)
     if "डॉ." in text:  # the abbreviation would otherwise become "डॉ।"; it is said in full anyway
         text = re.sub(r"डॉ\.\s*", "डॉक्टर ", text)
         changes.append("abbreviation: डॉ. → डॉक्टर")

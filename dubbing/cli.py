@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--overwrite", action="store_true", help="Build the script again (e.g. after correcting speakers)")
     sc.add_argument("--verbose", action="store_true", help="Show detailed log messages")
 
+    st = sub.add_parser("story", help="Phase A2: read the whole script (who talks to whom, formality, scene, corrections)")
+    st.add_argument("--job-id", required=True)
+    st.add_argument("--config", type=Path, help="Use a different config file")
+    st.add_argument("--overwrite", action="store_true", help="Build the story bible again (your decisions are kept)")
+    st.add_argument("--reread", action="store_true", help="Make the AI read the script again instead of re-using its notes")
+    st.add_argument("--verbose", action="store_true", help="Show detailed log messages")
+
     tr = sub.add_parser("translate", help="Translate a job's transcript into the target language(s)")
     tr.add_argument("--job-id", required=True, help="The job whose transcript to translate")
     tr.add_argument("--to", help="Target language code(s), comma-separated, e.g. 'hi' (default: config.yaml)")
@@ -112,6 +119,13 @@ def main(argv: list[str] | None = None) -> int:
             setup_logging(JobPaths(settings.data_dir, validate_job_id(args.job_id)).log_file, verbose=args.verbose)
             out = run_script(args.job_id, settings, overwrite=args.overwrite)
             print(f"\nDone. Dubbing script: {out}\nReview page: {JobPaths(settings.data_dir, args.job_id).script_review}")
+        elif args.command == "story":
+            from dubbing.pipeline.story_job import run_story
+
+            paths = JobPaths(settings.data_dir, validate_job_id(args.job_id))
+            setup_logging(paths.log_file, verbose=args.verbose)
+            out = run_story(args.job_id, settings, overwrite=args.overwrite, reread=args.reread)
+            print(f"\nDone. Story bible: {out}\nReview page: {paths.story_review}\nCorrections: {paths.corrections_file}")
         elif args.command == "translate":
             paths = JobPaths(settings.data_dir, validate_job_id(args.job_id))
             setup_logging(paths.log_file, verbose=args.verbose)

@@ -92,6 +92,20 @@ class JobPaths:
         return self.data_dir.parent / "speakers" / f"{self.job_id}.yaml"
 
     @property
+    def story(self) -> Path:
+        """Phase A2 story bible: characters, who talks to whom, formality, scene, corrections."""
+        return self.data_dir / "context" / f"{self.job_id}_story.json"
+
+    @property
+    def story_review(self) -> Path:
+        return self.data_dir / "context" / f"{self.job_id}_story_review.html"
+
+    @property
+    def corrections_file(self) -> Path:
+        """Suggested English corrections for you to accept or reject. Kept with the project."""
+        return self.data_dir.parent / "context" / f"{self.job_id}_corrections.yaml"
+
+    @property
     def speaker_samples_dir(self) -> Path:
         return self.scripts_dir / f"{self.job_id}_speakers"
 

@@ -41,6 +41,30 @@ def test_abbreviation_does_not_end_the_sentence():
     assert [u["source_segment_ids"] for u in build_units(segs)] == [[0, 1], [2, 3], [4]]
 
 
+def test_translator_is_chosen_by_language():
+    from dubbing.languages import get_language
+    from dubbing.pipeline.translate_script_job import engine_for
+
+    s = load_settings()
+    assert engine_for(s, get_language("hi")) == "indictrans2"
+    assert engine_for(s, get_language("es")) == "nllb"
+    with pytest.raises(Exception, match="only translates into Indian languages"):
+        engine_for(replace(s, translation=replace(s.translation, engine="indictrans2")), get_language("es"))
+
+
+def test_spanish_skips_hindi_rules_and_keeps_latin_letters():
+    from dubbing.translator.spoken import make_spoken
+
+    r = make_spoken("Estaba en Calcuta", "female", "tum", {"Calcutta": "कलकत्ता"}, english="I was in Calcutta.",
+                    lang="es")
+    assert r.text == "Estaba en Calcuta."      # no Hindi names, no danda, end punctuation kept
+    src = "Tesseract belongs on Asgard."
+    opts = ["El Tesseract pertenece a Asgard.", "Tesseract es de Asgard y mucho, mucho, mucho, mucho más."]
+    chosen, _ = choose(opts, src, {o: src for o in opts}, slot_s=2.0, chars_per_second=15, pace=1.0,
+                       penalize_latin=False)
+    assert chosen["text"] == opts[0] and chosen["latin_words"] == 0
+
+
 class StandIn:
     """Test double: 'translates' by returning fixed options, and back-translates to the English."""
 

@@ -47,6 +47,13 @@ class ScriptSettings:
 
 
 @dataclass(frozen=True)
+class ContextSettings:
+    model: str
+    chunk_lines: int
+    default_register: str
+
+
+@dataclass(frozen=True)
 class TranslationSettings:
     model: str
     batch_size: int
@@ -106,6 +113,7 @@ class Settings:
     asr: AsrSettings
     diarization: DiarizationSettings
     script: ScriptSettings
+    context: ContextSettings
     translation: TranslationSettings
     tts: TtsSettings
     mix: MixSettings
@@ -151,12 +159,12 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
         num_beams=int(tr_raw.get("num_beams", 4)),
         max_new_tokens=int(tr_raw.get("max_new_tokens", 256)),
         alternatives=int(tr_raw.get("alternatives", 5)),
-        engine=tr_raw.get("engine", "indictrans2"),
+        engine=tr_raw.get("engine", "auto"),
         indictrans_model=tr_raw.get("indictrans_model", "ai4bharat/indictrans2-en-indic-dist-200M"),
         register=tr_raw.get("register", "tum"),
     )
-    if translation.engine not in ("indictrans2", "nllb"):
-        raise ConfigError("translation.engine must be 'indictrans2' or 'nllb'")
+    if translation.engine not in ("auto", "indictrans2", "nllb"):
+        raise ConfigError("translation.engine must be 'auto', 'indictrans2' or 'nllb'")
     if translation.register not in ("tum", "aap"):
         raise ConfigError("translation.register must be 'tum' (familiar) or 'aap' (respectful)")
     if translation.batch_size < 1 or translation.num_beams < 1:
@@ -233,6 +241,11 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
             min_confidence=float(d.get("min_confidence", 0.7)),
         ),
         script=ScriptSettings(detect_overlaps=bool((raw.get("script") or {}).get("detect_overlaps", True))),
+        context=ContextSettings(
+            model=(raw.get("context") or {}).get("model", "qwen2.5:7b-instruct"),
+            chunk_lines=int((raw.get("context") or {}).get("chunk_lines", 60)),
+            default_register=(raw.get("context") or {}).get("default_register", "familiar"),
+        ),
         translation=translation,
         tts=tts,
         mix=mix,

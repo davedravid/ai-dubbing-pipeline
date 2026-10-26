@@ -36,11 +36,12 @@ def _repeats(text: str, run: int = 3) -> bool:
 
 
 def score_option(text: str, source: str, back: str, slot_s: float, chars_per_second: float,
-                 pace: float) -> dict[str, Any]:
+                 pace: float, penalize_latin: bool = True) -> dict[str, Any]:
     meaning = chrf(source, back)
     est = estimated_seconds(text, chars_per_second, pace)
     over = max(0.0, est / max(slot_s, 0.3) - FIT_SLACK)
-    latin = len(re.findall(r"[A-Za-z]{2,}", text))
+    # English words left in a non-Latin-script line (Hindi). For Spanish etc. Latin letters are normal.
+    latin = len(re.findall(r"[A-Za-z]{2,}", text)) if penalize_latin else 0
     # Repeating far more than the English did ("No, no, no." -> thirteen "नो"), or being far
     # longer than the English, means the model ran away.
     runaway = (_repeats(text, run=max(3, _longest_run(source) + 1))
@@ -61,9 +62,10 @@ def _longest_run(text: str) -> int:
 
 
 def choose(options: list[str], source: str, backs: dict[str, str], slot_s: float,
-           chars_per_second: float, pace: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+           chars_per_second: float, pace: float, penalize_latin: bool = True) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Return (chosen option, all options scored best-first)."""
-    scored = [score_option(t, source, backs.get(t, ""), slot_s, chars_per_second, pace) for t in options if t]
+    scored = [score_option(t, source, backs.get(t, ""), slot_s, chars_per_second, pace, penalize_latin)
+              for t in options if t]
     scored.sort(key=lambda o: o["score"], reverse=True)
     if not scored:
         empty = {"text": "", "back_translation": "", "meaning": 0.0, "est_s": 0.0, "latin_words": 0,
