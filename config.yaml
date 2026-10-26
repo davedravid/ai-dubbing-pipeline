@@ -27,6 +27,20 @@ asr:
   vad_filter: true
   # Per-word timings; useful later for subtitles and speaker labels.
   word_timestamps: true
+  # Separate voices from music first (Demucs) and transcribe the voices alone.
+  # Music under dialogue made Whisper miss whole lines.
+  from_separated_vocals: true
+
+diarization:
+  # Find who speaks when (pyannote). Needs the HF_TOKEN setting and the model's terms
+  # accepted on Hugging Face. pyannote's usage statistics are switched off.
+  enabled: true
+  model: pyannote/speaker-diarization-3.1
+  # Leave null to let pyannote decide how many people speak.
+  min_speakers: null
+  max_speakers: null
+  # Below this share of a line's speech time, its speaker is marked "uncertain".
+  min_confidence: 0.7
 
 translation:
   model: facebook/nllb-200-distilled-600M
@@ -35,6 +49,9 @@ translation:
   # How many alternatives the model weighs (higher = slightly better, slower).
   num_beams: 4
   max_new_tokens: 256
+  # Extra wordings per sentence to choose from when the main one is too long to speak in
+  # time. Each is translated back to check it keeps the meaning. 0 = off.
+  alternatives: 5
 
 tts:
   # You accepted the Coqui Public Model License (non-commercial use only) on 2026-10-25.
@@ -66,9 +83,10 @@ mix:
   demucs_model: htdemucs
   # Listen to the separated background with Whisper to find dialogue that leaked through.
   leak_check: true
-  # Fixing lines that are too long, gentlest first:
-  #   1) use the pause after the line, 2) start up to this many seconds early...
-  max_early_start_s: 0.3
+  # Each line starts when the actor's voice really begins. Fixing lines that are too long:
+  #   1) use the pause after the line, 2) start up to this many seconds early
+  #   (0 = never start before the actor; viewers noticed early starts)...
+  max_early_start_s: 0.0
   # ...always keeping at least this much silence between two lines...
   min_gap_s: 0.08
   #   3) ...then play the line at most this much faster (pitch unchanged).
@@ -76,7 +94,8 @@ mix:
   max_tighten: 1.15
   # Set each dubbed line to the loudness of the original line it replaces.
   match_line_loudness: true
-  max_line_gain_db: 12.0
+  # Largest correction per line. 12 dB was too small: the dub stayed louder than the original.
+  max_line_gain_db: 30.0
   # Lower the music/effects this much while someone is speaking, so voices stay clear.
   background_dip_db: 2.0
   # Safety limiter: the loudest point of the final soundtrack (dB below maximum).
@@ -86,6 +105,8 @@ mix:
   # Put Hindi and English subtitles inside the video as switchable tracks.
   embed_subtitles: true
   audio_bitrate: 192k
+  # Put the actors' laughs, sighs and breaths back (Whisper checks they are not words).
+  keep_nonverbal_sounds: true
 
 presets:
   fast:

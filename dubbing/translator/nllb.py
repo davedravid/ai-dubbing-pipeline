@@ -53,6 +53,10 @@ class NllbTranslator:
 
     def translate(self, texts: list[str], src_nllb: str, tgt_nllb: str) -> list[str]:
         """Translate a list of texts and return results in the same order."""
+        return [c[0] for c in self.translate_candidates(texts, src_nllb, tgt_nllb, 1)]
+
+    def translate_candidates(self, texts: list[str], src_nllb: str, tgt_nllb: str, n: int) -> list[list[str]]:
+        """Up to `n` different translations per text, best first (duplicates removed)."""
         import torch
 
         if not texts:
@@ -64,8 +68,9 @@ class NllbTranslator:
 
         # Similar-length texts in one batch waste less padding, so sort first.
         order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
-        results: list[str | None] = [None] * len(texts)
+        results: list[list[str] | None] = [None] * len(texts)
         batch_size = self.settings.batch_size
+        beams = max(self.settings.num_beams, n)
         for start in range(0, len(order), batch_size):
             idx = order[start:start + batch_size]
             batch = [texts[i] for i in idx]
@@ -75,13 +80,19 @@ class NllbTranslator:
                 generated = self.model.generate(
                     **inputs,
                     forced_bos_token_id=tgt_token_id,
-                    num_beams=self.settings.num_beams,
+                    num_beams=beams,
+                    num_return_sequences=n,
                     max_new_tokens=self.settings.max_new_tokens,
                     max_length=None,  # the model's stored default conflicts with max_new_tokens
                 )
             decoded = self.tokenizer.batch_decode(generated, skip_special_tokens=True)
-            for i, text in zip(idx, decoded):
-                results[i] = text.strip()
+            for k, i in enumerate(idx):
+                unique: list[str] = []
+                for text in decoded[k * n:(k + 1) * n]:
+                    text = text.strip()
+                    if text and text not in unique:
+                        unique.append(text)
+                results[i] = unique or [""]
             log.info("  translated %d/%d", min(start + batch_size, len(order)), len(order))
 
         if any(r is None for r in results):

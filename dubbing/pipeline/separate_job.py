@@ -23,10 +23,11 @@ log = logging.getLogger(__name__)
 STEREO_SR = 44100
 
 
-def ensure_stereo_source(paths: JobPaths, transcript: dict[str, Any], settings: Settings) -> Path:
+def ensure_stereo_source(paths: JobPaths, transcript_or_path: dict[str, Any] | Path, settings: Settings) -> Path:
+    """The 44.1 kHz stereo copy of the original audio (extracted once, then reused)."""
     if paths.source_stereo.is_file():
         return paths.source_stereo
-    source = Path(transcript["source"]["path"])
+    source = Path(transcript_or_path["source"]["path"]) if isinstance(transcript_or_path, dict) else Path(transcript_or_path)
     if not source.is_file():
         raise PipelineError(f"The original video is no longer at {source}.")
     return extract_audio(find_ffmpeg(settings.ffmpeg_path), source, paths.source_stereo,
@@ -54,15 +55,23 @@ def leak_check(background: Path, settings: Settings, lang: str) -> dict[str, Any
     }
 
 
-def run_separation(job_id: str, settings: Settings, overwrite: bool = False) -> Path:
+def run_separation(job_id: str, settings: Settings, overwrite: bool = False,
+                   input_path: Path | None = None, leak_lang: str | None = None) -> Path:
+    """Separate voices from music/effects. `input_path` is needed when the job has no
+    transcript yet (separation now runs before transcription)."""
     paths = JobPaths(settings.data_dir, validate_job_id(job_id))
-    _, transcript = load_transcript(paths, job_id)
+    if input_path is None:
+        _, transcript = load_transcript(paths, job_id)
+        input_path = Path(transcript["source"]["path"])
+        leak_lang = leak_lang or transcript["language"]
     if paths.separation_report.exists() and not overwrite:
         raise OutputExistsError(f"{paths.separation_report.name} already exists. Add --overwrite to separate again.")
 
     timings: dict[str, float] = {}
     started = time.perf_counter()
-    source = ensure_stereo_source(paths, transcript, settings)
+    if overwrite and paths.source_stereo.is_file():
+        paths.source_stereo.unlink()  # our own extracted copy; re-extract from the given input
+    source = ensure_stereo_source(paths, Path(input_path), settings)
     timings["extract_s"] = round(time.perf_counter() - started, 2)
 
     device = "cuda" if settings.device == "cuda" else "cpu"
@@ -72,7 +81,7 @@ def run_separation(job_id: str, settings: Settings, overwrite: bool = False) -> 
     leaks = None
     if settings.mix.leak_check:
         started = time.perf_counter()
-        leaks = leak_check(paths.background, settings, transcript["language"])
+        leaks = leak_check(paths.background, settings, leak_lang or settings.source_language or "en")
         timings["leak_check_s"] = round(time.perf_counter() - started, 2)
         log.info("Leak check: %d words of dialogue still audible in the background (%.1fs)",
                  leaks["words_heard"], leaks["seconds_with_words"])

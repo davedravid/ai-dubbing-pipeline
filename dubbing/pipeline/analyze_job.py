@@ -52,7 +52,8 @@ def run_analysis(job_id: str, settings: Settings, overwrite: bool = False) -> Pa
         raise OutputExistsError(f"{out_path.name} already exists. Add --overwrite to replace it.")
 
     started = time.perf_counter()
-    audio_path = ensure_source_audio(paths, transcript, settings)
+    # Measure the separated voices when available: music under speech distorts pitch and loudness.
+    audio_path = paths.vocals if paths.vocals.is_file() else ensure_source_audio(paths, transcript, settings)
     y, sr = read_mono(audio_path)
     units = build_units(transcript.get("segments", []))
     facts = timing_facts(units, float(transcript["source"]["duration_s"]))
@@ -81,7 +82,9 @@ def run_analysis(job_id: str, settings: Settings, overwrite: bool = False) -> Pa
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "language": lang,
         "source_audio": str(audio_path),
-        "note": "Measurements of the ORIGINAL audio. Background music/effects can distort them.",
+        "note": ("Measurements of the ORIGINAL voices, separated from music."
+                 if audio_path == paths.vocals else
+                 "Measurements of the ORIGINAL audio. Background music/effects can distort them."),
         "summary": {
             "unit_count": len(out_units),
             "units_with_pitch": len(pitches),

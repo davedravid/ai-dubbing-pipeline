@@ -16,6 +16,7 @@ from dubbing.errors import OutputExistsError, PipelineError
 from dubbing.languages import get_language
 from dubbing.paths import JobPaths, validate_job_id
 from dubbing.pipeline.transcribe_job import file_sha256, write_json
+from dubbing.qa.text_metrics import chrf
 from dubbing.translator.checks import check_translation, timing_facts
 from dubbing.translator.nllb import NllbTranslator, Translator
 from dubbing.translator.units import build_units
@@ -32,6 +33,39 @@ def _find_transcript(paths: JobPaths, job_id: str) -> Path:
     if len(found) > 1:
         raise PipelineError(f"Job '{job_id}' has several transcripts: {', '.join(p.name for p in found)}")
     return found[0]
+
+
+MIN_MEANING_SCORE = 40.0        # chrF of the back-translation against the original sentence
+KEEP_MEANING_SHARE = 0.85       # an alternative must keep this share of the main wording's score
+MIN_SHORTER = 0.92              # ...and be at least 8% shorter than the main wording
+BAD_FLAGS = {"empty_translation", "wrong_script", "repetition", "unchanged"}
+
+
+def _shorter_alternatives(translator, sources: list[str], candidates: list[list[str]],
+                          source, target) -> dict[int, dict[str, Any]]:
+    """For each sentence, the alternative wordings that are shorter AND keep the meaning.
+
+    Meaning is checked by translating each wording back into the source language and
+    comparing it with the original sentence (chrF score, 0-100)."""
+    flat = [(k, text) for k, cands in enumerate(candidates) for text in cands]
+    backs = translator.translate([t for _, t in flat], target.nllb, source.nllb)
+    scored: dict[int, list[dict[str, Any]]] = {}
+    for (k, text), back in zip(flat, backs):
+        scored.setdefault(k, []).append({"text": text, "chars": len(text), "back_translation": back,
+                                         "meaning_score": chrf(sources[k], back)})
+    result = {}
+    for k, options in scored.items():
+        primary, rest = options[0], options[1:]
+        floor = max(MIN_MEANING_SCORE, primary["meaning_score"] * KEEP_MEANING_SHARE)
+        good = []
+        for o in rest:
+            flags, _ = check_translation(sources[k], o["text"], source, target, 1.0, 1.0, 14.0)
+            if o["chars"] <= primary["chars"] * MIN_SHORTER and o["meaning_score"] >= floor \
+                    and not set(flags) & BAD_FLAGS:
+                good.append(o)
+        result[k] = {"primary_meaning": primary["meaning_score"], "primary_back": primary["back_translation"],
+                     "options": sorted(good, key=lambda o: -o["meaning_score"])}
+    return result
 
 
 def _check_complete(units: list[dict[str, Any]], segments: list[dict[str, Any]]) -> None:
@@ -79,13 +113,25 @@ def run_translation(
     for target in targets:
         log.info("Translating %d units: %s -> %s", len(to_translate), source.name, target.name)
         started = time.perf_counter()
-        outputs = translator.translate([units[i]["text"] for i in to_translate], source.nllb, target.nllb)
+        sources = [units[i]["text"] for i in to_translate]
+        n_alt = settings.translation.alternatives
+        if n_alt > 0 and hasattr(translator, "translate_candidates"):
+            candidates = translator.translate_candidates(sources, source.nllb, target.nllb, n_alt + 1)
+        else:
+            candidates = [[t] for t in translator.translate(sources, source.nllb, target.nllb)]
         translate_s = round(time.perf_counter() - started, 2)
-        if len(outputs) != len(to_translate):
+        if len(candidates) != len(to_translate):
             raise PipelineError(
-                f"Translator returned {len(outputs)} results for {len(to_translate)} units; nothing was saved."
+                f"Translator returned {len(candidates)} results for {len(to_translate)} units; nothing was saved."
             )
-        translated = dict(zip(to_translate, outputs))
+        translated = {i: c[0] for i, c in zip(to_translate, candidates)}
+
+        started = time.perf_counter()
+        has_options = any(len(c) > 1 for c in candidates)
+        alternatives = (_shorter_alternatives(translator, sources, candidates, source, target)
+                        if n_alt > 0 and has_options else {})
+        alternatives = {to_translate[k]: v for k, v in alternatives.items()}
+        alternatives_s = round(time.perf_counter() - started, 2)
 
         out_units = []
         for i, unit in enumerate(units):
@@ -103,12 +149,17 @@ def run_translation(
                 "source_segment_ids": unit["source_segment_ids"],
                 "start": unit["start"],
                 "end": unit["end"],
+                "speaker": unit.get("speaker"),
+                "speaker_uncertain": unit.get("speaker_uncertain", True),
                 "source_text": unit["text"],
                 "text": translated.get(i, ""),
                 "status": status,
                 "flags": flags,
                 **fact,
                 **estimates,
+                **({"meaning_score": alternatives[i]["primary_meaning"],
+                    "back_translation": alternatives[i]["primary_back"],
+                    "shorter_alternatives": alternatives[i]["options"]} if i in alternatives else {}),
             })
 
         flag_counts = Counter(f for u in out_units for f in u["flags"])
@@ -131,7 +182,7 @@ def run_translation(
                 "flagged_units": sum(1 for u in out_units if u["flags"]),
                 "flag_counts": dict(flag_counts),
             },
-            "timings": {"model_load_s": load_s, "translate_s": translate_s},
+            "timings": {"model_load_s": load_s, "translate_s": translate_s, "alternatives_s": alternatives_s},
             # Each entry is one sentence unit (one or more transcript segments).
             "segments": out_units,
         }

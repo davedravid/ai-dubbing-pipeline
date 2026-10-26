@@ -22,7 +22,7 @@ from dubbing.paths import JobPaths, validate_job_id
 from dubbing.pipeline.analyze_job import ensure_source_audio, load_transcript
 from dubbing.pipeline.transcribe_job import file_sha256, write_json
 from dubbing.qa.text_metrics import char_error_rate
-from dubbing.tts.references import cut_reference, plan_references
+from dubbing.tts.references import build_speaker_references, cut_reference, plan_references
 from dubbing.tts.text_norm import normalize_for_speech
 from dubbing.tts.xtts import LICENSE_NOTE, Voice, XttsSynthesizer
 
@@ -161,6 +161,16 @@ def _generate_line(
     return best
 
 
+MAX_SHORTER_TRIES = 2  # shorter wordings tried for a line that does not fit
+
+
+def _better(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Is take `a` better than `b`? Clear speech first, then fitting the slot, then shorter."""
+    def key(r: dict[str, Any]) -> tuple:
+        return (not r["passed"], not r.get("fits", False), len(r["y"]))
+    return key(a) < key(b)
+
+
 def _load_previous(manifest_path: Path, translation_sha: str) -> dict[str, Any]:
     if not manifest_path.is_file():
         raise PipelineError("--redo-flagged needs an earlier 'speak' run for this job and language.")
@@ -224,6 +234,12 @@ def run_speech(
     timings: dict[str, float] = {}
     started = time.perf_counter()
     source_y, sr_src = read_mono(ensure_source_audio(paths, transcript, settings))
+    # Clone from the separated voices when available: music in a reference muddies the voice.
+    if paths.vocals.is_file():
+        vocals, sr_v = read_mono(paths.vocals)
+        ref_y, ref_sr, ref_source = resample(vocals, sr_v, sr_src), sr_src, "separated_vocals"
+    else:
+        ref_y, ref_sr, ref_source = source_y, sr_src, "original_mix"
 
     # Delivery of the original lines: from 'analyze' if it was run, otherwise measured now.
     features_path = paths.features(translation["source_language"])
@@ -234,11 +250,14 @@ def run_speech(
     # Voice references (cut again for the lines being made now, so improvements apply)
     plan = {c.unit_id: c for c in plan_references(units, settings.tts.min_reference_s,
                                                   settings.tts.max_borrow_distance_s)}
+    speaker_refs: dict[str, dict[str, Any]] = {}
     if mode == "clone":
-        needed = {plan[u["id"]].ref_unit_id for u in selected} - {None}
-        for ref_id in sorted(needed):
-            path, quality = cut_reference(source_y, sr_src, units[ref_id], paths.references_dir / f"unit_{ref_id:03d}.wav")
+        needed = {plan[u["id"]].ref_unit_id for u in selected} | {u["id"] for u in selected if
+                                                                   u["end"] - u["start"] >= settings.tts.min_reference_s}
+        for ref_id in sorted(needed - {None}):
+            path, quality = cut_reference(ref_y, ref_sr, units[ref_id], paths.references_dir / f"unit_{ref_id:03d}.wav")
             references[ref_id] = {"path": str(path), **quality}
+        speaker_refs = build_speaker_references(units, ref_y, ref_sr, paths.references_dir)
     timings["references_s"] = round(time.perf_counter() - started, 2)
 
     started = time.perf_counter()
@@ -247,6 +266,48 @@ def run_speech(
     timings["model_load_s"] = round(time.perf_counter() - started, 2)
     standard = synth.builtin_voice(settings.tts.standard_speaker)
     voices: dict[int, Voice] = {}
+    speaker_voices = {spk: synth.voice_from_audio([Path(c["path"]) for c in r["clips"]], f"speaker {spk}")
+                      for spk, r in speaker_refs.items() if r["clips"]}
+    closest_builtin: dict[str, Voice] = {}
+
+    def line_voice(unit: dict[str, Any], flags: list[str]) -> tuple[Voice, dict[str, Any] | None]:
+        """Pick the voice for one line. Returns (voice, reference details)."""
+        if mode != "clone":
+            return standard, None
+        spk = unit.get("speaker")
+        long_enough = unit["end"] - unit["start"] >= settings.tts.min_reference_s
+        if spk in speaker_voices and not unit.get("speaker_uncertain", True):
+            timbre = speaker_voices[spk]
+            if long_enough:
+                # Same person's voice, with the delivery (emotion) of this exact line.
+                if unit["id"] not in voices:
+                    voices[unit["id"]] = synth.voice_from_audio([Path(references[unit["id"]]["path"])], "line")
+                return (synth.combine(voices[unit["id"]], timbre, f"speaker {spk}, delivery of this line"),
+                        {"speaker": spk, "delivery_from_unit": unit["id"]})
+            return timbre, {"speaker": spk, "delivery_from_unit": None}
+        # No confident speaker label: fall back to the line's own audio or a nearby line.
+        flags.append("speaker_uncertain")
+        choice = plan[unit["id"]]
+        if choice.ref_unit_id is None:
+            flags.append("builtin_voice_fallback")
+            return standard, None
+        if choice.ref_unit_id not in voices:
+            voices[choice.ref_unit_id] = synth.voice_from_audio(
+                [Path(references[choice.ref_unit_id]["path"])], f"cloned from original line {choice.ref_unit_id}")
+        if choice.borrowed:
+            flags.append("reference_borrowed")
+        flags += [f"reference_{w}" for w in references[choice.ref_unit_id]["warnings"]]
+        return voices[choice.ref_unit_id], {"unit_id": choice.ref_unit_id, "borrowed": choice.borrowed,
+                                            "distance_s": choice.distance_s}
+
+    def backup_voice(voice: Voice) -> Voice:
+        """For clarity fallback: the built-in voice closest to the line's voice, not one fixed voice."""
+        if voice is standard:
+            return standard
+        key = voice.description
+        if key not in closest_builtin:
+            closest_builtin[key] = synth.closest_builtin_voice(voice)
+        return closest_builtin[key]
 
     out_dir = paths.tts_dir(target.code)
     out_units: list[dict[str, Any]] = []
@@ -265,38 +326,41 @@ def run_speech(
             out_units.append(entry)
             continue
 
-        choice = plan[unit["id"]]
-        if mode == "clone" and choice.ref_unit_id is not None:
-            if choice.ref_unit_id not in voices:
-                ref = references[choice.ref_unit_id]
-                voices[choice.ref_unit_id] = synth.voice_from_audio(
-                    [Path(ref["path"])], f"cloned from original line {choice.ref_unit_id}")
-            voice = voices[choice.ref_unit_id]
-            entry["reference"] = {"unit_id": choice.ref_unit_id, "borrowed": choice.borrowed,
-                                  "distance_s": choice.distance_s,
-                                  "warnings": references[choice.ref_unit_id]["warnings"],
-                                  "gain_applied_db": references[choice.ref_unit_id]["gain_applied_db"]}
-            if choice.borrowed:
-                flags.append("reference_borrowed")
-            flags += [f"reference_{w}" for w in references[choice.ref_unit_id]["warnings"]]
-        else:
-            voice = standard
-            if mode == "clone":
-                flags.append("builtin_voice_fallback")
-
-        spoken_text = normalize_for_speech(unit["text"], target.code)
-        entry["spoken_text"] = spoken_text
+        voice, ref_info = line_voice(unit, flags)
+        entry["speaker"] = unit.get("speaker")
+        entry["reference"] = ref_info
         available = max(unit["available_s"], 0.001)
-        result = _generate_line(synth, checker, settings, spoken_text, target, voice, available)
+        fits_within = available * settings.mix.max_tighten  # the mix can still tighten by this much
 
-        # Clarity comes first: if the cloned voice could not be understood, try the clear built-in voice.
+        # Main wording first; if it cannot fit its slot, try shorter wordings that keep the meaning.
+        wordings = [("main", unit["text"])] + [
+            ("shorter", o["text"]) for o in unit.get("shorter_alternatives", [])[:MAX_SHORTER_TRIES]]
+        result, chosen, spoken_text = None, None, None
+        for kind, text in wordings:
+            spoken = normalize_for_speech(text, target.code)
+            attempt = _generate_line(synth, checker, settings, spoken, target, voice, available)
+            attempt["fits"] = len(attempt["y"]) / synth.sample_rate <= fits_within
+            if result is None or _better(attempt, result):
+                result, chosen, spoken_text = attempt, (kind, text), spoken
+            if attempt["passed"] and attempt["fits"]:
+                break
+        assert result is not None and chosen is not None
+        entry["text"] = chosen[1]
+        entry["wording"] = chosen[0]
+        if chosen[0] == "shorter":
+            entry["main_text"] = unit["text"]
+            flags.append("shorter_wording")
+        entry["spoken_text"] = spoken_text
+
+        # Clarity comes first: if the cloned voice could not be understood, try the closest built-in voice.
         if not result["passed"] and voice is not standard and settings.tts.clarity_fallback:
-            fallback = _generate_line(synth, checker, settings, spoken_text, target, standard, available,
+            backup = backup_voice(voice)
+            fallback = _generate_line(synth, checker, settings, spoken_text, target, backup, available,
                                       voice_label="built-in fallback")
             result["attempts"] += fallback["attempts"]
             if fallback["score"] < result["score"]:
                 fallback["attempts"] = result["attempts"]
-                result, voice = fallback, standard
+                result, voice = fallback, backup
                 flags.append("clarity_fallback_builtin")
         entry["voice"] = voice.description
 
@@ -321,7 +385,7 @@ def run_speech(
                   comment=f"AI-generated speech ({LICENSE_NOTE}). Voice: {voice.description}.")
 
         dubbed = analyze_clip(y, synth.sample_rate)
-        original = source_features.get(unit["id"]) or analyze_clip(cut(source_y, sr_src, unit["start"], unit["end"]), sr_src)
+        original = source_features.get(unit["id"]) or analyze_clip(cut(ref_y, ref_sr, unit["start"], unit["end"]), ref_sr)
         delivery = compare(original, dubbed)
         if delivery.get("pitch_range_diff_st", 0) < FLATTER_THAN_ORIGINAL_ST:
             flags.append("flatter_than_original")
@@ -373,6 +437,8 @@ def run_speech(
             "median_char_error_rate": round(float(np.median(cers)), 3) if cers else None,
             "total_speech_s": round(sum(u["duration_s"] for u in generated), 2),
         },
+        "reference_source": ref_source,
+        "speaker_references": speaker_refs,
         "references": references,
         "timings": timings,
         "units": out_units,

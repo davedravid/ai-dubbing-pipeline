@@ -22,6 +22,16 @@ class AsrSettings:
     beam_size: int
     vad_filter: bool
     word_timestamps: bool
+    from_separated_vocals: bool
+
+
+@dataclass(frozen=True)
+class DiarizationSettings:
+    enabled: bool
+    model: str
+    min_speakers: int | None
+    max_speakers: int | None
+    min_confidence: float
 
 
 @dataclass(frozen=True)
@@ -30,6 +40,7 @@ class TranslationSettings:
     batch_size: int
     num_beams: int
     max_new_tokens: int
+    alternatives: int
 
 
 VOICE_MODES = {"clone", "standard"}
@@ -64,6 +75,7 @@ class MixSettings:
     include_original_audio: bool
     embed_subtitles: bool
     audio_bitrate: str
+    keep_nonverbal_sounds: bool
 
 
 @dataclass(frozen=True)
@@ -76,6 +88,7 @@ class Settings:
     ffmpeg_path: str | None
     ffmpeg_dll_dir: str | None
     asr: AsrSettings
+    diarization: DiarizationSettings
     translation: TranslationSettings
     tts: TtsSettings
     mix: MixSettings
@@ -113,12 +126,14 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
     if not model:
         raise ConfigError(f"Preset '{preset}' does not set asr_model")
 
+    d = raw.get("diarization") or {}
     tr_raw = raw.get("translation") or {}
     translation = TranslationSettings(
         model=presets[preset].get("translation_model") or tr_raw.get("model", "facebook/nllb-200-distilled-600M"),
         batch_size=int(tr_raw.get("batch_size", 8)),
         num_beams=int(tr_raw.get("num_beams", 4)),
         max_new_tokens=int(tr_raw.get("max_new_tokens", 256)),
+        alternatives=int(tr_raw.get("alternatives", 5)),
     )
     if translation.batch_size < 1 or translation.num_beams < 1:
         raise ConfigError("translation.batch_size and translation.num_beams must be 1 or more")
@@ -146,16 +161,17 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
     mix = MixSettings(
         demucs_model=m.get("demucs_model", "htdemucs"),
         leak_check=bool(m.get("leak_check", True)),
-        max_early_start_s=float(m.get("max_early_start_s", 0.3)),
+        max_early_start_s=float(m.get("max_early_start_s", 0.0)),
         min_gap_s=float(m.get("min_gap_s", 0.08)),
         max_tighten=float(m.get("max_tighten", 1.15)),
         match_line_loudness=bool(m.get("match_line_loudness", True)),
-        max_line_gain_db=float(m.get("max_line_gain_db", 12.0)),
+        max_line_gain_db=float(m.get("max_line_gain_db", 30.0)),
         background_dip_db=float(m.get("background_dip_db", 2.0)),
         limiter_peak_db=float(m.get("limiter_peak_db", -1.0)),
         include_original_audio=bool(m.get("include_original_audio", True)),
         embed_subtitles=bool(m.get("embed_subtitles", True)),
         audio_bitrate=str(m.get("audio_bitrate", "192k")),
+        keep_nonverbal_sounds=bool(m.get("keep_nonverbal_sounds", True)),
     )
     if not 1.0 <= mix.max_tighten <= 1.5:
         raise ConfigError("mix.max_tighten must be between 1.0 and 1.5")
@@ -173,6 +189,14 @@ def _build_settings(raw: dict[str, Any], preset_override: str | None, base_dir: 
             beam_size=int(asr_raw.get("beam_size", 5)),
             vad_filter=bool(asr_raw.get("vad_filter", True)),
             word_timestamps=bool(asr_raw.get("word_timestamps", True)),
+            from_separated_vocals=bool(asr_raw.get("from_separated_vocals", True)),
+        ),
+        diarization=DiarizationSettings(
+            enabled=bool(d.get("enabled", True)),
+            model=d.get("model", "pyannote/speaker-diarization-3.1"),
+            min_speakers=d.get("min_speakers"),
+            max_speakers=d.get("max_speakers"),
+            min_confidence=float(d.get("min_confidence", 0.7)),
         ),
         translation=translation,
         tts=tts,

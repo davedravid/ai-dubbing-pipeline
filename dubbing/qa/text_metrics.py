@@ -23,6 +23,31 @@ def edit_distance(a: str, b: str) -> int:
     return prev[-1]
 
 
+def chrf(reference: str, candidate: str, max_n: int = 6, beta: float = 2.0) -> float:
+    """Character n-gram F-score (chrF), 0-100: how similar two sentences are in wording.
+    Used to compare a back-translation with the original sentence."""
+    from collections import Counter
+
+    def grams(text: str, n: int) -> Counter:
+        t = " ".join(text.lower().split())
+        return Counter(t[i:i + n] for i in range(len(t) - n + 1))
+
+    precisions, recalls = [], []
+    for n in range(1, max_n + 1):
+        ref, hyp = grams(reference, n), grams(candidate, n)
+        if not ref or not hyp:
+            continue
+        match = sum((ref & hyp).values())
+        precisions.append(match / sum(hyp.values()))
+        recalls.append(match / sum(ref.values()))
+    if not precisions:
+        return 0.0
+    p, r = sum(precisions) / len(precisions), sum(recalls) / len(recalls)
+    if p + r == 0:
+        return 0.0
+    return round(100 * (1 + beta ** 2) * p * r / (beta ** 2 * p + r), 1)
+
+
 def char_error_rate(expected: str, heard: str) -> float:
     """0.0 = identical, 1.0 = completely different (can exceed 1 if `heard` is much longer)."""
     ref, hyp = normalize_text(expected), normalize_text(heard)

@@ -22,3 +22,6 @@ torchcodec==0.17.0
 # Phase 5 (separation, loudness)
 demucs==4.1.0
 pyloudnorm==0.2.0
+
+# Speaker detection (needs HF_TOKEN and the model's terms accepted on Hugging Face)
+pyannote.audio==4.0.7

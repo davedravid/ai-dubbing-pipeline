@@ -23,7 +23,8 @@ def run_subtitles(job_id: str, settings: Settings, lang: str | None = None, over
     paths = JobPaths(settings.data_dir, validate_job_id(job_id))
 
     if lang:
-        candidates = [paths.translation(lang), paths.transcript(lang)]
+        # The speech manifest holds the wording actually spoken (it may be a shorter one).
+        candidates = [paths.tts_manifest(lang), paths.translation(lang), paths.transcript(lang)]
         transcript_path = next((p for p in candidates if p.is_file()), None)
         if transcript_path is None:
             raise PipelineError(
@@ -41,7 +42,7 @@ def run_subtitles(job_id: str, settings: Settings, lang: str | None = None, over
 
     data = json.loads(transcript_path.read_text(encoding="utf-8"))
     lang = data["language"]
-    segments = data.get("segments", [])
+    segments = data.get("segments") or data.get("units") or []
 
     out_path = paths.subtitle(lang, "vtt")
     if out_path.exists() and not overwrite:

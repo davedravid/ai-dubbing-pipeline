@@ -81,6 +81,25 @@ class XttsSynthesizer:
         latent, embedding = self.model.get_conditioning_latents(audio_path=[str(p) for p in reference_wavs])
         return Voice(latent, embedding, description)
 
+    @staticmethod
+    def combine(delivery: Voice, timbre: Voice, description: str) -> Voice:
+        """Speak with `timbre`'s voice (who it sounds like) and `delivery`'s style (how it is said).
+        XTTS keeps these apart: the speaker embedding sets the voice, the latent sets the style."""
+        return Voice(delivery.gpt_cond_latent, timbre.speaker_embedding, description)
+
+    def closest_builtin_voice(self, voice: Voice) -> Voice:
+        """The built-in voice that sounds most like `voice` (by voice fingerprint)."""
+        target = voice.speaker_embedding.reshape(-1)
+        best_name, best_score = None, -2.0
+        for name, s in self.model.speaker_manager.speakers.items():
+            emb = s["speaker_embedding"].reshape(-1)
+            score = float(self._torch.nn.functional.cosine_similarity(target, emb, dim=0))
+            if score > best_score:
+                best_name, best_score = name, score
+        voice_out = self.builtin_voice(best_name)
+        voice_out.description = f"built-in voice '{best_name}' (closest to {voice.description}, similarity {best_score:.2f})"
+        return voice_out
+
     # ---- speech -------------------------------------------------------------
 
     def speak(self, text: str, xtts_lang: str, voice: Voice, speed: float = 1.0, seed_offset: int = 0) -> np.ndarray:

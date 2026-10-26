@@ -17,6 +17,7 @@ from dubbing import __version__
 from dubbing.analysis.prosody import analyze_clip
 from dubbing.audio.clips import cut, place_on_timeline, read_mono, resample
 from dubbing.audio.fit import plan_fit
+from dubbing.audio.nonverbal import candidate_regions, classify_regions, restore_mask
 from dubbing.config import Settings
 from dubbing.errors import OutputExistsError, PipelineError
 from dubbing.languages import get_language
@@ -42,6 +43,45 @@ MAX_LOUDNESS_DIFF_LU = 1.0
 # Speech flags worth a human listen in the final video
 LISTEN_FLAGS = {"low_intelligibility", "tail_cut", "clarity_fallback_builtin", "builtin_voice_fallback",
                 "needs_shorter_translation", "overlaps_next_line", "flatter_than_original"}
+
+
+ONSET_BELOW_PEAK_DB = 30.0
+ONSET_LOOKBACK_S = 0.1
+
+
+def voice_onset(vocals: np.ndarray, sr: int, start: float, end: float) -> float:
+    """When the actor's voice really begins in a line (transcript times can be early).
+    Searches from a moment before `start` to `end` in the separated voices; never
+    returns a time before the transcript's start minus ONSET_LOOKBACK_S."""
+    a = max(0, int((start - ONSET_LOOKBACK_S) * sr))
+    clip = vocals[a: int(end * sr)]
+    hop = int(0.01 * sr)
+    n = len(clip) // hop
+    if n == 0:
+        return start
+    level = 20 * np.log10(np.maximum(np.sqrt((clip[: n * hop].reshape(n, hop) ** 2).mean(1)), 1e-10))
+    loud = np.flatnonzero(level > level.max() - ONSET_BELOW_PEAK_DB)
+    return round(a / sr + (loud[0] * hop / sr if loud.size else ONSET_LOOKBACK_S), 3)
+
+
+class _Listener:
+    """Whisper, used to tell laughs and sighs apart from real (untranslated) words."""
+
+    def __init__(self, settings: Settings, lang: str):
+        from faster_whisper import WhisperModel
+
+        from dubbing.asr.transcriber import resolve_device
+
+        device, compute_type = resolve_device(settings.device)
+        self.model = WhisperModel(settings.asr.model, device=device, compute_type=compute_type)
+        self.lang = lang
+
+    def heard(self, clip: np.ndarray, sr: int) -> str:
+        if len(clip) < sr * 0.2:
+            return ""
+        segments, _ = self.model.transcribe(resample(clip, sr, 16000), language=self.lang, beam_size=5,
+                                            vad_filter=False)
+        return " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
 
 
 def _speech_mask(placements, n_samples: int, sr: int) -> np.ndarray:
@@ -94,7 +134,7 @@ def run_mix(job_id: str, settings: Settings, lang: str = "hi", overwrite: bool =
     # 1) Voices / background separation (run it now if it has not been done)
     if not paths.background.is_file() or not paths.vocals.is_file():
         log.info("No separated background yet; running 'separate' first.")
-        run_separation(job_id, settings, overwrite=True)
+        run_separation(job_id, settings, overwrite=True, input_path=video_in, leak_lang=transcript["language"])
     separation = json.loads(paths.separation_report.read_text(encoding="utf-8")) if paths.separation_report.is_file() else {}
 
     started = time.perf_counter()
@@ -104,9 +144,10 @@ def run_mix(job_id: str, settings: Settings, lang: str = "hi", overwrite: bool =
         raise PipelineError(f"Separated tracks must be {MIX_SR} Hz; found {sr} / {sr_v}. Run 'separate --overwrite'.")
     n = len(background)
 
-    # 2) Timing: where each line plays and how much it is tightened
+    # 2) Timing: start each line when the actor's voice really begins, then fit it
     generated = sorted((u for u in manifest["units"] if u.get("status") == "generated"), key=lambda u: u["start"])
-    lines = [{"id": u["id"], "start": u["start"], "duration": u["duration_s"]} for u in generated]
+    lines = [{"id": u["id"], "start": voice_onset(vocals_mono, MIX_SR, u["start"], u["end"]),
+              "duration": u["duration_s"]} for u in generated]
     placements = plan_fit(lines, total_s, cfg.max_early_start_s, cfg.min_gap_s, cfg.max_tighten)
 
     # 3) Prepare each line: tighten, resample, match the original line's loudness
@@ -137,6 +178,25 @@ def run_mix(job_id: str, settings: Settings, lang: str = "hi", overwrite: bool =
     speech = speech[:n] if len(speech) >= n else np.pad(speech, (0, n - len(speech)))
     dip = 10 ** (-cfg.background_dip_db * _speech_mask(placements, n, MIX_SR) / 20)
     mix = background * dip[:, None] + speech[:, None]
+    timings["mix_s"] = round(time.perf_counter() - started, 2)
+
+    # 4b) Put back the actors' laughs, sighs and breaths (never untranslated words)
+    started = time.perf_counter()
+    kept_sounds, untranslated = [], []
+    if cfg.keep_nonverbal_sounds:
+        words = [(w["start"], w["end"]) for s in transcript["segments"] for w in (s.get("words") or [])] or \
+                [(s["start"], s["end"]) for s in transcript["segments"]]
+        busy = [(p.start, p.start + p.duration) for p in placements]
+        regions = candidate_regions(vocals_mono, MIX_SR, words, busy)
+        if regions:
+            listener = _Listener(settings, transcript["language"])
+            kept_sounds, untranslated = classify_regions(regions, vocals_mono, MIX_SR, listener.heard)
+            vocals_stereo, _ = sf.read(str(paths.vocals), dtype="float32", always_2d=True)
+            mix = mix + vocals_stereo[:n] * restore_mask(kept_sounds, n, MIX_SR)[:, None]
+        log.info("Kept %d non-word sounds (%.1fs); %d stretches of untranslated speech found",
+                 len(kept_sounds), sum(r["end"] - r["start"] for r in kept_sounds), len(untranslated))
+    timings["nonverbal_s"] = round(time.perf_counter() - started, 2)
+    started = time.perf_counter()
 
     # 5) Overall loudness: match the original soundtrack
     original_y, _ = sf.read(str(ensure_stereo_source(paths, transcript, settings)), dtype="float32", always_2d=True)
@@ -147,7 +207,7 @@ def run_mix(job_id: str, settings: Settings, lang: str = "hi", overwrite: bool =
     with sf.SoundFile(str(paths.dub_mix(lang)), "w", samplerate=MIX_SR, channels=2, subtype="FLOAT", format="WAV") as f:
         f.comment = f"AI-generated {target.name} dub ({LICENSE_NOTE})"
         f.write(mix)
-    timings["mix_s"] = round(time.perf_counter() - started, 2)
+    timings["loudness_s"] = round(time.perf_counter() - started, 2)
 
     # 6) Build the video: original picture + dubbed audio (+ original audio) + subtitles
     started = time.perf_counter()
@@ -170,6 +230,13 @@ def run_mix(job_id: str, settings: Settings, lang: str = "hi", overwrite: bool =
     expected_lines = sum(1 for u in manifest["units"] if u.get("status") != "skipped_no_text")
     report = _qa(tools, paths, lang, video_in, video_out, original_y, placements, line_reports,
                  overlaps, expected_lines, separation, cfg, [s.path for s in subtitles])
+    report["nonverbal_sounds_kept"] = {"count": len(kept_sounds),
+                                       "seconds": round(sum(r["end"] - r["start"] for r in kept_sounds), 1),
+                                       "where": kept_sounds}
+    report["untranslated_speech"] = untranslated
+    report["checks"]["all_speech_dubbed"] = not untranslated
+    report["passed"] = all(report["checks"].values())
+    report["listen_to"] += [{"id": None, "at_s": r["start"], "reasons": ["untranslated_speech"]} for r in untranslated]
     timings["qa_s"] = round(time.perf_counter() - started, 2)
     report.update({
         "pipeline_version": __version__,

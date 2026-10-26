@@ -31,6 +31,35 @@ class ReferenceChoice:
     distance_s: float | None
 
 
+SPEAKER_REF_MAX_S = 30.0     # XTTS uses up to about 30 s of reference audio
+SPEAKER_REF_MAX_CLIPS = 8
+SPEAKER_REF_MIN_CLIP_S = 1.5
+
+
+def build_speaker_references(units: list[dict[str, Any]], y: np.ndarray, sr: int,
+                             out_dir: Path) -> dict[str, dict[str, Any]]:
+    """For each detected speaker, cut their longest confidently-labelled lines (up to
+    SPEAKER_REF_MAX_S in total) as one shared voice reference. Same person = same voice."""
+    by_speaker: dict[str, list[dict[str, Any]]] = {}
+    for u in units:
+        if u.get("speaker") and not u.get("speaker_uncertain", True) and u["end"] - u["start"] >= SPEAKER_REF_MIN_CLIP_S:
+            by_speaker.setdefault(u["speaker"], []).append(u)
+    refs: dict[str, dict[str, Any]] = {}
+    for speaker, lines in by_speaker.items():
+        chosen, total = [], 0.0
+        for u in sorted(lines, key=lambda u: u["end"] - u["start"], reverse=True):
+            if total >= SPEAKER_REF_MAX_S or len(chosen) >= SPEAKER_REF_MAX_CLIPS:
+                break
+            chosen.append(u)
+            total += u["end"] - u["start"]
+        clips = []
+        for u in sorted(chosen, key=lambda u: u["start"]):
+            path, quality = cut_reference(y, sr, u, out_dir / f"speaker_{speaker}_unit_{u['id']:03d}.wav")
+            clips.append({"unit_id": u["id"], "path": str(path), **quality})
+        refs[speaker] = {"seconds": round(total, 1), "clips": clips}
+    return refs
+
+
 def plan_references(units: list[dict[str, Any]], min_ref_s: float, max_borrow_s: float) -> list[ReferenceChoice]:
     long_enough = [u for u in units if u["end"] - u["start"] >= min_ref_s and u.get("text")]
     plan = []

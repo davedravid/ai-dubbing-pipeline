@@ -68,9 +68,21 @@ def run_transcription(
     source_hash = file_sha256(input_path)
     timings["probe_s"] = round(time.perf_counter() - started, 2)
 
-    started = time.perf_counter()
-    audio_path = extract_audio(tools, input_path, paths.asr_audio)
-    timings["extract_audio_s"] = round(time.perf_counter() - started, 2)
+    if settings.asr.from_separated_vocals:
+        # Music and effects confuse speech recognition; listen to the voices alone instead.
+        from dubbing.audio.clips import read_mono, resample, write_wav
+        from dubbing.pipeline.separate_job import run_separation
+
+        if overwrite or not paths.vocals.is_file():
+            run_separation(job_id, settings, overwrite=True, input_path=input_path,
+                           leak_lang=settings.source_language or "en")
+        vocals, sr = read_mono(paths.vocals)
+        audio_path = write_wav(paths.asr_audio, resample(vocals, sr, 16000), 16000)
+        asr_input = "separated_vocals"
+    else:
+        audio_path = extract_audio(tools, input_path, paths.asr_audio)
+        asr_input = "original_mix"
+    timings["prepare_audio_s"] = round(time.perf_counter() - started, 2)
 
     started = time.perf_counter()
     result = transcribe(audio_path, settings.asr, settings.device, settings.source_language)
@@ -78,6 +90,32 @@ def run_transcription(
 
     if not result.segments:
         log.warning("Whisper found no speech in this file. The transcript will have 0 segments.")
+
+    speakers_info: dict[str, Any] | None = None
+    if settings.diarization.enabled and result.segments:
+        from dubbing.audio.clips import read_mono
+        from dubbing.diarization.speakers import diarize, label_segments
+
+        started = time.perf_counter()
+        y16, sr16 = read_mono(audio_path)
+        turns = diarize(y16, sr16, settings.diarization.model, "cuda" if settings.device == "cuda" else "cpu",
+                        settings.diarization.min_speakers, settings.diarization.max_speakers)
+        result.segments = label_segments(result.segments, turns, settings.diarization.min_confidence)
+        write_json(paths.diarization, {"job_id": job_id, "model": settings.diarization.model, "turns": turns})
+        timings["diarize_s"] = round(time.perf_counter() - started, 2)
+        per = {}
+        for seg in result.segments:
+            if seg["speaker"]:
+                p = per.setdefault(seg["speaker"], {"segments": 0, "speech_s": 0.0})
+                p["segments"] += 1
+                p["speech_s"] = round(p["speech_s"] + seg["end"] - seg["start"], 2)
+        speakers_info = {
+            "model": settings.diarization.model,
+            "speaker_count": len(per),
+            "speakers": per,
+            "uncertain_segments": [s["id"] for s in result.segments if s["speaker_uncertain"]],
+        }
+        log.info("Speakers: %s; %d segments uncertain", per, len(speakers_info["uncertain_segments"]))
 
     transcript = {
         "schema_version": TRANSCRIPT_SCHEMA_VERSION,
@@ -94,7 +132,9 @@ def run_transcription(
             "channels": media.channels,
         },
         "asr_audio": str(audio_path),
+        "asr_input": asr_input,
         "asr": result.model_info,
+        "diarization": speakers_info,
         "language": result.language,
         "language_probability": result.language_probability,
         "audio_duration_s": result.audio_duration_s,

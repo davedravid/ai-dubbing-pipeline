@@ -70,6 +70,10 @@ class JobPaths:
         return self.temp_dir / f"{self.job_id}_background.wav"
 
     @property
+    def diarization(self) -> Path:
+        return self.data_dir / "diarization" / f"{self.job_id}.json"
+
+    @property
     def separation_report(self) -> Path:
         return self.temp_dir / f"{self.job_id}_separation.json"
 
