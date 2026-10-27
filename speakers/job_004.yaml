@@ -20,5 +20,5 @@ speakers:
     gender: male
     same_as: null
 lines:
-  3: S1   # "We're." is Banner (start of "we're a time bomb")
-  5: S4   # "You need to step away." is a fourth person
+  3: S1   # Banner (the first word of his next line)
+  5: S4   # a fourth person
