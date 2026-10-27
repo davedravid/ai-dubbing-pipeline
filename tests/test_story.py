@@ -35,6 +35,33 @@ def test_rules_back_and_forth_plural_and_name_votes():
     assert r["name_votes"]["S6"]["Stark"] > r["name_votes"].get("S1", {}).get("Stark", 0)   # Stark answers next
 
 
+def test_plural_words_only_count_when_addressing_people():
+    lines = [_l(0, "S3", "I know guys with none of that worth ten of you."), _l(1, "S2", "Sure."),
+             _l(2, "S2", "Sorry kids, you don't get to see my trick."), _l(3, "S1", "You people are so petty.")]
+    r = analyse(lines, NAMES)
+    assert not r["lines"][0]["plural"]                       # "guys" = "men", not addressing a group
+    assert r["lines"][2]["plural"] and r["lines"][3]["plural"]
+
+
+def test_listener_is_shared_within_one_persons_speech():
+    from dubbing.context.merge import share_within_runs
+
+    speakers = {"S2": {}, "S3": {}, "S1": {}}
+    names = {"S3": {"suggested_name": "Rogers"}}
+    lines = [_l(0, "S3", "Stop pretending to be a hero."), _l(1, "S2", "A hero?"), _l(2, "S2", "Like you?"),
+             _l(3, "S2", "You're a laboratory experiment, Rogers."), _l(4, "S2", "It came out of a bottle.")]
+    rules = {0: {"addressee": ["S2"], "confidence": "low"}, 1: {"addressee": ["S3"], "confidence": "low"},
+             2: {"addressee": ["S3"], "confidence": "low"}, 3: {"addressee": ["S3"], "confidence": "low",
+                                                                 "vocatives": ["Rogers"]},
+             4: {"addressee": ["S3"], "confidence": "low"}}
+    ai = {1: {"addressee": ["S1"], "confidence": "medium"}, 2: {"addressee": ["S1"], "confidence": "medium"},
+          3: {"addressee": ["S1"], "confidence": "high"},   # AI disagrees even with the named line
+          4: {"addressee": ["S1"], "confidence": "medium"}}
+    out = share_within_runs(lines, merge_lines(lines, rules, ai, names, speakers))
+    assert [out[i]["addressee"] for i in (1, 2, 3, 4)] == [["S3"]] * 4
+    assert out[4]["reason"].startswith("same speech")
+
+
 def test_names_agree_or_are_marked():
     speakers = {"S1": {"gender": "female"}, "S6": {"gender": "male"}, "S2": {"gender": "male"}}
     names = suggest_names({"S6": {"Stark": 1.0}, "S2": {"Banner": 0.6}},

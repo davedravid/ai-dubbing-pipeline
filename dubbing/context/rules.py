@@ -14,8 +14,13 @@ from typing import Any
 
 TITLES = ["Agent", "Doctor", "Dr.", "Captain", "Mr.", "Mrs.", "Ms.", "Miss", "Sir", "Ma'am", "Madam",
           "Professor", "Detective", "Officer", "General", "Colonel", "Director"]
+# Always plural: "you people", "all of you"...
 PLURAL_CUES = re.compile(r"\b(you people|you guys|you boys|you girls|you two|you all|y'all|all of you|"
-                         r"everyone|everybody|kids|ladies|gentlemen|folks|team|boys|guys)\b", re.IGNORECASE)
+                         r"everyone|everybody|ladies and gentlemen)\b", re.IGNORECASE)
+# Plural only when used to ADDRESS people ("Sorry kids, ...", "..., guys?"), not in a sentence
+# like "I know guys with none of that", where "guys" just means "men".
+PLURAL_VOCATIVE = re.compile(r"(^\s*(?:\w+\s+)?(kids|boys|guys|girls|folks|team|gentlemen|ladies)\s*[,!?])|"
+                             r"(,\s*(kids|boys|guys|girls|folks|team|gentlemen|ladies)\s*[.?!]*\s*$)", re.IGNORECASE)
 GENERIC_VOCATIVES = {"man", "buddy", "pal", "dude", "sir", "ma'am", "madam", "son", "kid", "honey", "doctor"}
 
 
@@ -60,10 +65,10 @@ def analyse(lines: list[dict[str, Any]], names: list[str]) -> dict[str, Any]:
         text = line.get("text", "")
         prev, nxt = _neighbours(lines, i)
         voc = vocatives(text, proper + TITLES)
-        plural = bool(PLURAL_CUES.search(text))
-        if plural:
+        cue = PLURAL_CUES.search(text) or PLURAL_VOCATIVE.search(text)
+        if cue:
             guess = {"addressee": ["group"], "plural": True, "confidence": "high",
-                     "evidence": f"plural words: {PLURAL_CUES.search(text).group(0)!r}"}
+                     "evidence": f"plural words: {cue.group(0).strip(' ,.?!')!r}"}
         elif prev and nxt and prev == nxt:
             guess = {"addressee": [prev], "plural": False, "confidence": "high",
                      "evidence": f"back-and-forth with {prev}"}

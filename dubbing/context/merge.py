@@ -88,12 +88,44 @@ def merge_lines(lines: list[dict[str, Any]], rules: dict[int, dict[str, Any]], a
             to, conf, agree, why = a_to, "medium" if r_to else a.get("confidence", "low"), (False if r_to else None), "AI reading"
         else:
             to, conf, agree, why = r_to, r.get("confidence", "low"), None, r.get("evidence", "rules")
-        if agree is False and conf == "high":
-            conf = "medium"
+        if agree is False and conf == "high" and why != "name said in the line":
+            conf = "medium"  # a name said in the line stays certain, whatever the AI thinks
+        if to == ["group"] and r.get("plural") and r_to == ["group"]:
+            why = r.get("evidence", why)  # keep "plural words: ..." as the reason
         out[lid] = {"speaker": me, "addressee": to, "plural": to == ["group"] or bool(r.get("plural")),
                     "confidence": conf, "sources_agree": agree, "reason": why,
                     "rules_say": r_to, "ai_says": a_to}
     return out
+
+
+def share_within_runs(lines: list[dict[str, Any]], merged: dict[int, dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """When one person says several lines in a row, they are usually talking to the same listener.
+    If one line in the run clearly says who (a name, plural words, rules+AI agree), the other
+    lines in the run that are less sure take that listener."""
+    runs, current = [], []
+    for line in lines:
+        if current and line.get("speaker") != current[-1].get("speaker"):
+            runs.append(current)
+            current = []
+        current.append(line)
+    if current:
+        runs.append(current)
+    for run in runs:
+        anchors = [merged[l["id"]] for l in run if merged[l["id"]]["confidence"] == "high"
+                   and merged[l["id"]]["reason"] in ("name said in the line", "rules and AI agree")
+                   or merged[l["id"]]["reason"].startswith("plural words")]
+        if not anchors:
+            continue
+        anchor = anchors[0]
+        for l in run:
+            m = merged[l["id"]]
+            if m["confidence"] != "high" or m["reason"] not in ("name said in the line", "rules and AI agree") \
+                    and not m["reason"].startswith("plural words"):
+                if m["addressee"] != anchor["addressee"]:
+                    m.update(addressee=list(anchor["addressee"]), plural=anchor["plural"],
+                             reason=f'same speech as a line that says who ({anchor["reason"]})')
+                m["confidence"] = "high"
+    return merged
 
 
 def addressee_gender(addressee: list[str], speakers: dict[str, Any], nearby: list[str]) -> str:

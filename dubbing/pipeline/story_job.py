@@ -20,8 +20,8 @@ from dubbing import __version__
 from dubbing.config import Settings
 from dubbing.context import corrections as corr
 from dubbing.context.llm import read_script
-from dubbing.context.merge import (addressee_gender, merge_lines, pair_registers, suggest_names,
-                                   usable_corrections)
+from dubbing.context.merge import (addressee_gender, merge_lines, pair_registers, share_within_runs,
+                                   suggest_names, usable_corrections)
 from dubbing.context.rules import analyse
 from dubbing.errors import OutputExistsError, PipelineError
 from dubbing.paths import JobPaths, validate_job_id
@@ -75,7 +75,7 @@ def run_story(job_id: str, settings: Settings, overwrite: bool = False, ai_reade
     names = suggest_names(rules["name_votes"], ai.get("characters", {}), speakers)
     for spk, n in names.items():
         n["final_name"] = (overrides.get(spk) or {}).get("name")  # your name for a speaker always wins
-    per_line = merge_lines(lines, rules["lines"], ai.get("lines", {}), names, speakers)
+    per_line = share_within_runs(lines, merge_lines(lines, rules["lines"], ai.get("lines", {}), names, speakers))
     ids = [l["id"] for l in lines]
     for i, line in enumerate(lines):
         nearby = {lines[j].get("speaker") for j in range(max(0, i - NEARBY_LINES), min(len(lines), i + NEARBY_LINES + 1))}
