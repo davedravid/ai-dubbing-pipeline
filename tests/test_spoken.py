@@ -93,6 +93,26 @@ def test_group_and_other_subjects_are_left_alone():
     assert make_spoken("वे जा रहे थे।", "male", listener_gender="female").text == "वे जा रहे थे।"
 
 
+def test_fixes_found_on_job_004():
+    # a man's "I" written with feminine verbs; adjectives are left alone
+    assert make_spoken("मैं उन लोगों को जानती हूं।", "male").text == "मैं उन लोगों को जानता हूं।"
+    assert make_spoken("मैं कर रही हूँ, मैं करूँगी।", "male").text == "मैं कर रहा हूँ, मैं करूँगा।"
+    assert make_spoken("मैं दुखी हूँ।", "male").text == "मैं दुखी हूँ।"
+    # हम takes the plural verb (only the first one: "जो ... करता है" belongs to the mixture)
+    assert make_spoken("हम एक मिश्रण है जो अराजकता पैदा करता है।", "male").text == \
+        "हम एक मिश्रण हैं जो अराजकता पैदा करता है।"
+    assert make_spoken("हम है।", "male").text == "हम हैं।"
+    # polite "-ें" commands at the end of a clause become familiar
+    assert make_spoken("पीछे हटें।", "male").text == "पीछे हटो।"
+    assert make_spoken("उसे हटा दें।", "male").text == "उसे हटा दो।"
+    assert make_spoken("हम चलें?", "male").text == "हम चलें?"                 # "let's go" stays
+    assert make_spoken("वो घर में।", "male").text == "वो घर में।"
+    assert make_spoken("पीछे हटें।", "male", register="aap").text == "पीछे हटें।"
+    # each तुम gets its own verb
+    assert make_spoken("आप जानते हैं कि आप खतरा नहीं हो सकते हैं, लेकिन आप नाटक बंद कर दें।", "male").text == \
+        "तुम जानते हो कि तुम खतरा नहीं हो सकते हो, लेकिन तुम नाटक बंद कर दो।"
+
+
 def test_dotted_names_are_protected_before_translating():
     from dubbing.translator.spoken import protect_names
 

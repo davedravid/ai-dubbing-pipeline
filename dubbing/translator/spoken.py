@@ -102,6 +102,58 @@ def feminine_first_person(text: str, changes: list[str]) -> str:
     return "".join(parts)
 
 
+def masculine_first_person(text: str, changes: list[str]) -> str:
+    """The translator sometimes writes a man's "I" with feminine verbs (मैं ... जानती हूँ).
+    Only forms that can only mean "I" are changed: "-ती/रही हूँ" and the "-ूँगी" future
+    (not adjectives such as "दुखी हूँ")."""
+    parts = CLAUSE_SPLIT.split(text)
+    for i, clause in enumerate(parts):
+        if not re.search(r"(?<![ऀ-ॣ०-ॿ])मैं(?![ऀ-ॣ०-ॿ])", clause):
+            continue
+
+        def masc(m: re.Match) -> str:
+            new = m.group(1) + "ा" + m.group(2)
+            changes.append(f"speaker is male: {m.group(0).strip()} → {new.strip()}")
+            return new
+        clause = re.sub(r"(?<![ऀ-ॣ०-ॿ])([ऀ-ॣ०-ॿ]*(?:त|रह))ी(\s+(?:हूँ|हूं))(?![ऀ-ॣ०-ॿ])", masc, clause)
+        clause = re.sub(r"(?<![ऀ-ॣ०-ॿ])([ऀ-ॣ०-ॿ]+(?:ूँग|ूंग))ी()(?![ऀ-ॣ०-ॿ])", masc, clause)
+        parts[i] = clause
+    return "".join(parts)
+
+
+def plural_we(text: str, changes: list[str]) -> str:
+    """"हम ... है" -> "हम ... हैं": the verb that goes with हम is plural."""
+    parts = CLAUSE_SPLIT.split(text)
+    for i, clause in enumerate(parts):
+        subject = re.search(r"(?<![ऀ-ॣ०-ॿ])हम(?![ऀ-ॣ०-ॿ])", clause)
+        if not subject:
+            continue
+        rest = clause[subject.end():]
+        fixed = re.sub(r"(?<![ऀ-ॣ०-ॿ])है(?![ऀ-ॣ०-ॿ])", "हैं", rest, count=1)
+        if fixed != rest:
+            changes.append("हम takes the plural: है → हैं")
+            parts[i] = clause[:subject.end()] + fixed
+    return "".join(parts)
+
+
+# Polite "-ें" commands at the end of a clause -> familiar: हटें -> हटो, कर दें -> कर दो.
+# Not when someone else is the subject ("हम चलें" = "let's go").
+_OTHER_SUBJECT = re.compile(r"(?<![ऀ-ॣ०-ॿ])(हम|वे|वो|ये|मैं|आप)(?![ऀ-ॣ०-ॿ])")
+_NOT_COMMANDS = {"में", "तुम्हें", "उन्हें", "हमें", "मुझें", "इन्हें", "जिन्हें", "किन्हें", "बातें", "आँखें", "आंखें"}
+_COMMAND_END = re.compile(r"(?<![ऀ-ॣ०-ॿ])([ऀ-ॣ०-ॿ]+)ें(\s*)$")
+
+
+def familiar_commands(clause: str, changes: list[str]) -> str:
+    if _OTHER_SUBJECT.search(clause):
+        return clause
+    m = _COMMAND_END.search(clause)
+    if not m or m.group(0).strip() in _NOT_COMMANDS:
+        return clause
+    new = m.group(1) + "ो"
+    changes.append(f"familiar command: {m.group(1)}ें → {new}")
+    return clause[:m.start()] + new + m.group(2)
+
+
 # "You" verb forms when speaking to ONE woman with तुम: तुम ... रहे हो -> रही हो, जाओगे -> जाओगी.
 TO_WOMAN: dict[str, str] = {
     "रहे": "रही", "सकते": "सकती", "चाहते": "चाहती", "करते": "करती", "जाते": "जाती", "होते": "होती",
@@ -138,15 +190,16 @@ def to_tum(text: str, changes: list[str]) -> str:
     for i, clause in enumerate(parts):
         if re.search(r"(?<![ऀ-ॣ०-ॿ])(आप|तुम को)", clause):
             clause = _replace_words(clause, TUM, "तुम between peers", changes)
-        subject = re.search(r"(?<![ऀ-ॣ०-ॿ])तुम(?![ऀ-ॣ०-ॿ])", clause)
-        if subject:
-            # the verb that goes with तुम: "तुम ... जानते हैं कि" -> "तुम ... जानते हो कि"
-            rest = clause[subject.end():]
-            fixed = re.sub(r"(?<![ऀ-ॣ०-ॿ])हैं(?![ऀ-ॣ०-ॿ])", "हो", rest, count=1)
-            if fixed != rest:
+        # the verb that goes with each तुम: "तुम ... जानते हैं कि तुम ... सकते हैं" -> "... हो ... हो"
+        pieces = re.split(r"(?<![ऀ-ॣ०-ॿ])(तुम)(?![ऀ-ॣ०-ॿ])", clause)
+        for j in range(2, len(pieces), 2):
+            fixed = re.sub(r"(?<![ऀ-ॣ०-ॿ])हैं(?![ऀ-ॣ०-ॿ])", "हो", pieces[j], count=1)
+            if fixed != pieces[j]:
                 changes.append("तुम between peers: हैं → हो")
-            clause = clause[:subject.end()] + fixed
+                pieces[j] = fixed
+        clause = "".join(pieces)
         clause = _replace_words(clause, TUM_COMMANDS, "familiar command", changes)
+        clause = familiar_commands(clause, changes)
         parts[i] = clause
     return "".join(parts).replace(_REFLEXIVE_HOLD, _REFLEXIVE)
 
@@ -212,6 +265,9 @@ def make_spoken(text: str, speaker_gender: str | None, register: str = "tum",
     out = _replace_words(out, COLLOQUIAL, "everyday word", changes)
     if speaker_gender == "female":
         out = feminine_first_person(out, changes)
+    elif speaker_gender == "male":
+        out = masculine_first_person(out, changes)
+    out = plural_we(out, changes)
     if register == "tum":
         out = to_tum(out, changes)
         if listener_gender == "female":   # one woman is being spoken to (from the story bible)
